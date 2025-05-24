@@ -5,11 +5,10 @@ on:
 
 jobs:
   checks:
-    runs-on: ubuntu-latest
+    runs-on: nix
     steps:
       - uses: actions/checkout@v4
-      - uses: cachix/install-nix-action@v27
-      - uses: icewind1991/attic-action@v1
+      - uses: https://codeberg.org/icewind/attic-action@v1
         with:
           name: ci
           instance: https://cache.icewind.me
@@ -17,12 +16,11 @@ jobs:
       - run: nix flake check --keep-going
 
   semver:
-    runs-on: ubuntu-latest
+    runs-on: nix
     needs: checks
     steps:
       - uses: actions/checkout@v4
-      - uses: cachix/install-nix-action@v27
-      - uses: icewind1991/attic-action@v1
+      - uses: https://codeberg.org/icewind/attic-action@v1
         with:
           name: ci
           instance: https://cache.icewind.me
