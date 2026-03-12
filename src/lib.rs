@@ -15,7 +15,7 @@ use binrw::{BinRead, BinReaderExt};
 use bspfile::BspFile;
 pub use error::{BspError, StringError};
 use glam::Vec3;
-use image::{Pixel, Rgb};
+use image::Rgb;
 use lzma_rs::decompress::{Options, UnpackedSize};
 use qbsp::data::LightmapStyle;
 use qbsp::mesh::FaceExtents;
@@ -146,7 +146,9 @@ impl Bsp {
             .ok()
             .map(|mut lump| {
                 lump.read_vec(|r| r.read()).map(|vec: Vec<ColorRGBExp32>| {
-                    vec.into_iter().flat_map(|pixel| pixel.to_rgb().0).collect()
+                    vec.into_iter()
+                        .flat_map(|pixel| pixel.to_rgb32f().0)
+                        .collect()
                 })
             })
             .transpose()?;
