@@ -6,6 +6,7 @@ mod reader;
 
 use crate::bspfile::LumpType;
 pub use crate::data::TextureFlags;
+use crate::data::lighting::ColorRGBExp32;
 pub use crate::data::*;
 use crate::error::ValidationError;
 pub use crate::handle::Handle;
@@ -14,6 +15,7 @@ use binrw::{BinRead, BinReaderExt};
 use bspfile::BspFile;
 pub use error::{BspError, StringError};
 use glam::Vec3;
+use image::{Pixel, Rgb};
 use lzma_rs::decompress::{Options, UnpackedSize};
 use qbsp::data::LightmapStyle;
 use qbsp::mesh::FaceExtents;
@@ -30,6 +32,8 @@ pub use vbsp_common::{AsPropPlacement, deserialize_bool};
 pub use qbsp::data::{BspLighting, lighting::RgbLighting};
 
 pub type BspResult<T> = Result<T, BspError>;
+
+pub struct FlatRgb32FSamples(pub Vec<f32>);
 
 // TODO: Store all the allocated objects inline to improve cache usage
 /// A parsed bsp file
@@ -56,7 +60,7 @@ pub struct Bsp {
     pub faces: Faces,
     pub original_faces: Faces,
     pub vis_data: VisData,
-    pub lighting: Option<BspLighting>,
+    pub lighting_rgb32f: Option<Vec<f32>>,
     pub displacements: Vec<DisplacementInfo>,
     pub displacement_vertices: Vec<DisplacementVertex>,
     pub displacement_triangles: Vec<DisplacementTriangle>,
@@ -137,13 +141,13 @@ impl Bsp {
         };
         let original_faces = original_faces_lump.read_with_args(original_faces_lump_args)?;
 
-        let lighting = bsp_file
+        let lighting_rgb32f = bsp_file
             .lump_reader(LumpType::Lighting)
             .ok()
-            .map(|mut lump| -> BspResult<BspLighting> {
-                let lighting: RgbLighting = lump.read_vec(|r| r.read())?;
-
-                Ok(BspLighting::Colored(lighting))
+            .map(|mut lump| {
+                lump.read_vec(|r| r.read()).map(|vec: Vec<ColorRGBExp32>| {
+                    vec.into_iter().flat_map(|pixel| pixel.to_rgb().0).collect()
+                })
             })
             .transpose()?;
 
@@ -182,7 +186,7 @@ impl Bsp {
             leaves,
             leaf_faces,
             leaf_brushes,
-            lighting,
+            lighting_rgb32f,
             models,
             brushes,
             brush_sides,
@@ -209,7 +213,7 @@ impl Bsp {
         &self,
         mut packer: P,
     ) -> Result<LightmapAtlasOutput<P>, ComputeLightmapAtlasError> {
-        let Some(lighting) = &self.lighting else {
+        let Some(lighting) = &self.lighting_rgb32f else {
             return Err(ComputeLightmapAtlasError::NoLightmaps);
         };
 
@@ -236,12 +240,12 @@ impl Bsp {
 
                 lightmap_styles: face.styles.map(LightmapStyle),
                 face_idx,
-                lighting,
+                lighting_buffer: lighting,
             };
 
-            let input = packer.read_from_face(view);
+            let input = packer.read_from_face::<Rgb<f32>>(view);
 
-            let frame = packer.pack(view, input)?;
+            let frame = packer.pack::<Rgb<f32>>(view, input)?;
 
             lightmap_uvs.insert(
                 face_idx as u32,

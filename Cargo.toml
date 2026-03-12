@@ -25,6 +25,7 @@ static_assertions = "1.1.0"
 num_enum = "0.7.3"
 zip = { package = "zip-lzma", version = "0.6.3", default-features = false, features = ["lzma"] }
 itertools = "0.14.0"
+image = "0.25"
 ahash = "0.8.11"
 serde = "1.0.218"
 vdf-reader = "0.3.0"
