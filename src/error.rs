@@ -15,7 +15,9 @@ pub enum BspError {
     GameLumpOutOfBounds(GameLump),
     #[error("compressed game lump is malformed")]
     MalformedCompressedGameLump,
-    #[error("Invalid lump size, lump size {lump_size} is not a multiple of the element size {element_size}")]
+    #[error(
+        "Invalid lump size for {lump:?}, lump size {lump_size} is not a multiple of the element size {element_size}"
+    )]
     InvalidLumpSize {
         lump: LumpType,
         element_size: usize,
@@ -59,7 +61,7 @@ impl From<binrw::Error> for BspError {
                         *err.downcast::<InvalidNeighbourError>().unwrap(),
                     ))
                 } else {
-                    panic!("unexpected custom error")
+                    panic!("unexpected custom error: {err}")
                 }
             }
             e => BspError::MalformedData(e),
@@ -96,7 +98,7 @@ pub struct UnsupportedLumpVersion {
 #[derive(Debug, Error)]
 pub enum ValidationError {
     #[error(
-    "A {source_} indexes into {target} but the index {index} is out of range of the size {size}"
+        "A {source_} indexes into {target} but the index {index} is out of range of the size {size}"
     )]
     ReferenceOutOfRange {
         source_: &'static str,
@@ -107,7 +109,7 @@ pub enum ValidationError {
     #[error("bsp contains no root node")]
     NoRootNode,
     #[error("displacement face with {0} edges")]
-    NonSquareDisplacement(i16),
+    NonSquareDisplacement(i32),
     #[error("No static prop lump found")]
     NoStaticPropLump,
     #[error(transparent)]

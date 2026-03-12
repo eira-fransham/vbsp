@@ -2,7 +2,7 @@ use super::Handle;
 use crate::data::*;
 use itertools::Either;
 
-impl<'a> Handle<'a, Face> {
+impl<'a> Handle<'a, FaceV2> {
     /// Get the texture of the face
     pub fn texture(&self) -> Handle<'a, TextureInfo> {
         self.bsp

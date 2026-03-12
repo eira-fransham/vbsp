@@ -1,6 +1,6 @@
 use crate::*;
-use binrw::io::Cursor;
 use binrw::BinReaderExt;
+use binrw::io::Cursor;
 use std::borrow::Cow;
 
 pub struct BspFile<'a> {
@@ -36,7 +36,7 @@ impl<'a> BspFile<'a> {
         &self.header
     }
 
-    pub fn lump_reader(&self, lump: LumpType) -> BspResult<LumpReader<Cursor<Cow<[u8]>>>> {
+    pub fn lump_reader(&self, lump: LumpType) -> BspResult<LumpReader<Cursor<Cow<'_, [u8]>>>> {
         let entry = self.get_lump_entry(lump);
         let data = self.get_lump(entry)?;
         Ok(LumpReader::new(data, lump, entry.version))
@@ -46,7 +46,7 @@ impl<'a> BspFile<'a> {
         &self.directories[lump]
     }
 
-    pub fn get_lump(&self, lump: &LumpEntry) -> BspResult<Cow<[u8]>> {
+    pub fn get_lump(&self, lump: &LumpEntry) -> BspResult<Cow<'_, [u8]>> {
         let raw_data = self
             .data
             .get(lump.offset as usize..lump.offset as usize + lump.length as usize)
@@ -133,3 +133,74 @@ pub enum LumpType {
 }
 
 static_assertions::const_assert_eq!(LumpType::DisplacementMultiBlend as usize, 63);
+
+impl LumpType {
+    pub fn name(&self) -> &'static str {
+        match self {
+            LumpType::Entities => "entities",
+            LumpType::Planes => "planes",
+            LumpType::TextureData => "texturedata",
+            LumpType::Vertices => "vertices",
+            LumpType::Visibility => "visibility",
+            LumpType::Nodes => "nodes",
+            LumpType::TextureInfo => "textureinfo",
+            LumpType::Faces => "faces",
+            LumpType::Lighting => "lighting",
+            LumpType::Occlusion => "occlusion",
+            LumpType::Leaves => "leaves",
+            LumpType::FaceIds => "faceids",
+            LumpType::Edges => "edges",
+            LumpType::SurfaceEdges => "surfaceedges",
+            LumpType::Models => "models",
+            LumpType::WorldLights => "worldlights",
+            LumpType::LeafFaces => "leaffaces",
+            LumpType::LeafBrushes => "leafbrushes",
+            LumpType::Brushes => "brushes",
+            LumpType::BrushSides => "brushsides",
+            LumpType::Areas => "areas",
+            LumpType::AreaPortals => "areaportals",
+            LumpType::Unused0 => "unused0",
+            LumpType::Unused1 => "unused1",
+            LumpType::Unused2 => "unused2",
+            LumpType::Unused3 => "unused3",
+            LumpType::DisplacementInfo => "displacementinfo",
+            LumpType::OriginalFaces => "originalfaces",
+            LumpType::PhysDisplacement => "physdisplacement",
+            LumpType::PhysCollide => "physcollide",
+            LumpType::VertNormals => "vertnormals",
+            LumpType::VertNormalIndices => "vertnormalindices",
+            LumpType::DisplacementLightMapAlphas => "displacementlightmapalphas",
+            LumpType::DisplacementVertices => "displacementvertices",
+            LumpType::DisplacementLightMapSamplePositions => "displacementlightmapsamplepositions",
+            LumpType::GameLump => "gamelump",
+            LumpType::LeafWaterData => "leafwaterdata",
+            LumpType::Primitives => "primitives",
+            LumpType::PrimVertices => "primvertices",
+            LumpType::PrimIndices => "primindices",
+            LumpType::PakFile => "pakfile",
+            LumpType::ClipPortalVertices => "clipportalvertices",
+            LumpType::CubeMaps => "cubemaps",
+            LumpType::TextureDataStringData => "texturedatastringdata",
+            LumpType::TextureDataStringTable => "texturedatastringtable",
+            LumpType::Overlays => "overlays",
+            LumpType::LeafMinimumDistanceToWater => "leafminimumdistancetowater",
+            LumpType::FaceMacroTextureInfo => "facemacrotextureinfo",
+            LumpType::DisplacementTris => "displacementtris",
+            LumpType::PhysicsCollideSurface => "physicscollidesurface",
+            LumpType::WaterOverlays => "wateroverlays",
+            LumpType::LeafAmbientIndexHdr => "leafambientindexhdr",
+            LumpType::LeafAmbientIndex => "leafambientindex",
+            LumpType::LightingHdr => "lightinghdr",
+            LumpType::WorldLightsHdr => "worldlightshdr",
+            LumpType::LeafAmbientLightingHdr => "leafambientlightinghdr",
+            LumpType::LeafAmbientLighting => "leafambientlighting",
+            LumpType::XZipPakFile => "xzippakfile",
+            LumpType::FacesHdr => "faceshdr",
+            LumpType::MapFlags => "mapflags",
+            LumpType::OverlayFades => "overlayfades",
+            LumpType::OverlaySystemLevels => "overlaysystemlevels",
+            LumpType::PhysLevel => "physlevel",
+            LumpType::DisplacementMultiBlend => "displacementmultiblend",
+        }
+    }
+}

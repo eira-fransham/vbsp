@@ -1,11 +1,11 @@
-use crate::error::EntityParseError;
 use crate::EntityProp;
+use crate::error::EntityParseError;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::fmt;
 use std::fmt::Debug;
-use vdf_reader::entry::Entry;
 use vdf_reader::VdfError;
+use vdf_reader::entry::Entry;
 
 #[derive(Clone)]
 pub struct Entities {
@@ -55,7 +55,7 @@ impl<'a> IntoIterator for &'a Entities {
 }
 
 impl Entities {
-    pub fn iter(&self) -> EntitiesIter {
+    pub fn iter(&self) -> EntitiesIter<'_> {
         EntitiesIter {
             buf: &self.entities,
         }

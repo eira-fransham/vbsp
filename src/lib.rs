@@ -17,7 +17,7 @@ use lzma_rs::decompress::{Options, UnpackedSize};
 use reader::LumpReader;
 use std::cmp::min;
 use std::io::Read;
-pub use vbsp_common::{deserialize_bool, AsPropPlacement};
+pub use vbsp_common::{AsPropPlacement, deserialize_bool};
 
 pub type BspResult<T> = Result<T, BspError>;
 
@@ -43,8 +43,8 @@ pub struct Bsp {
     pub vertices: Vec<Vertex>,
     pub edges: Vec<Edge>,
     pub surface_edges: Vec<SurfaceEdge>,
-    pub faces: Vec<Face>,
-    pub original_faces: Vec<Face>,
+    pub faces: Faces,
+    pub original_faces: Faces,
     pub vis_data: VisData,
     pub displacements: Vec<DisplacementInfo>,
     pub displacement_vertices: Vec<DisplacementVertex>,
@@ -78,9 +78,15 @@ impl Bsp {
         let planes = bsp_file
             .lump_reader(LumpType::Planes)?
             .read_vec(|r| r.read())?;
-        let nodes = bsp_file
-            .lump_reader(LumpType::Nodes)?
-            .read_vec(|r| r.read())?;
+        let mut nodes_lump = bsp_file.lump_reader(LumpType::Nodes)?;
+        let nodes = match bsp_file.header().version {
+            BspVersion::Version25 => nodes_lump.read_vec(|r| r.read())?,
+            BspVersion::Version19 | BspVersion::Version20 | BspVersion::Version21 => {
+                let nodes_v0: Vec<NodeV0> = nodes_lump.read_vec(|r| r.read())?;
+
+                nodes_v0.into_iter().map(Into::into).collect()
+            }
+        };
         let leaves = bsp_file.lump_reader(LumpType::Leaves)?.read_args()?;
         let leaf_faces = bsp_file
             .lump_reader(LumpType::LeafFaces)?
@@ -106,12 +112,20 @@ impl Bsp {
         let surface_edges = bsp_file
             .lump_reader(LumpType::SurfaceEdges)?
             .read_vec(|r| r.read())?;
-        let faces = bsp_file
-            .lump_reader(LumpType::Faces)?
-            .read_vec(|r| r.read())?;
-        let original_faces = bsp_file
-            .lump_reader(LumpType::OriginalFaces)?
-            .read_vec(|r| r.read())?;
+
+        let mut face_lump = bsp_file.lump_reader(LumpType::Faces)?;
+        let face_lump_version = face_lump.args().version;
+        let faces = face_lump.read_args()?;
+
+        let mut original_faces_lump = bsp_file.lump_reader(LumpType::OriginalFaces)?;
+        // Portal Revolution BSPs seem to have a bug where the inner face type is version 2, but only
+        // the version of the faces lump is bumped.
+        let original_faces_lump_args = LumpArgs {
+            version: face_lump_version,
+            ..original_faces_lump.args()
+        };
+        let original_faces = original_faces_lump.read_with_args(original_faces_lump_args)?;
+
         let vis_data = bsp_file.lump_reader(LumpType::Visibility)?.read_visdata()?;
         let displacements = bsp_file
             .lump_reader(LumpType::DisplacementInfo)?
@@ -176,7 +190,7 @@ impl Bsp {
         self.planes.get(n).map(|plane| Handle::new(self, plane))
     }
 
-    pub fn face(&self, n: usize) -> Option<Handle<'_, Face>> {
+    pub fn face(&self, n: usize) -> Option<Handle<'_, FaceV2>> {
         self.faces.get(n).map(|face| Handle::new(self, face))
     }
 
@@ -250,7 +264,7 @@ impl Bsp {
     }
 
     /// Get all faces stored in the bsp
-    pub fn original_faces(&self) -> impl Iterator<Item = Handle<Face>> {
+    pub fn original_faces(&self) -> impl Iterator<Item = Handle<'_, FaceV2>> {
         self.faces.iter().map(move |face| Handle::new(self, face))
     }
 
@@ -381,7 +395,7 @@ impl Bsp {
             return Err(ValidationError::NoRootNode.into());
         }
 
-        for face in &self.faces {
+        for face in &*self.faces {
             if face.displacement_index().is_some() && face.num_edges != 4 {
                 return Err(ValidationError::NonSquareDisplacement(face.num_edges).into());
             }

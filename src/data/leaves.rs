@@ -4,7 +4,6 @@ use std::ops::Deref;
 
 use binrw::{BinRead, BinResult, Endian};
 
-use crate::bspfile::LumpType;
 use crate::BspError;
 
 use super::LumpArgs;
@@ -52,6 +51,7 @@ impl BinRead for Leaves {
         let item_size = match args.version {
             0 => size_of::<LeafV0>(),
             1 => size_of::<LeafV1>(),
+            2 => size_of::<LeafV2>(),
             version => {
                 return Err(binrw::Error::Custom {
                     err: Box::new(BspError::LumpVersion(
@@ -61,13 +61,13 @@ impl BinRead for Leaves {
                         },
                     )),
                     pos: reader.stream_position().unwrap(),
-                })
+                });
             }
         };
         if args.length % item_size != 0 {
             return Err(binrw::Error::Custom {
                 err: Box::new(BspError::InvalidLumpSize {
-                    lump: LumpType::Leaves,
+                    lump: args.type_,
                     element_size: item_size,
                     lump_size: args.length,
                 }),
@@ -226,16 +226,16 @@ impl From<LeafV0> for Leaf {
     fn from(value: LeafV0) -> Self {
         Self {
             contents: value.contents,
-            cluster: value.cluster,
-            area_and_flags: value.area_and_flags,
-            mins: value.mins,
-            maxs: value.maxs,
-            first_leaf_face: value.first_leaf_face,
-            leaf_face_count: value.leaf_face_count,
-            first_leaf_brush: value.first_leaf_brush,
-            leaf_brush_count: value.leaf_brush_count,
-            leaf_watter_data_id: value.leaf_watter_data_id,
-            cube: value.cube,
+            cluster: value.cluster as _,
+            area_and_flags: PackedAreaAndFlags::from_i16(value.area_and_flags),
+            mins: value.mins.map(|v| v as _),
+            maxs: value.maxs.map(|v| v as _),
+            first_leaf_face: value.first_leaf_face as _,
+            leaf_face_count: value.leaf_face_count as _,
+            first_leaf_brush: value.first_leaf_brush as _,
+            leaf_brush_count: value.leaf_brush_count as _,
+            leaf_water_data_id: value.leaf_watter_data_id as _,
+            cube: Some(value.cube),
         }
     }
 }
@@ -253,7 +253,7 @@ pub struct LeafV1 {
     pub first_leaf_brush: u16,
     pub leaf_brush_count: u16,
     #[br(align_after = align_of::< LeafV1 > ())]
-    pub leaf_watter_data_id: i16,
+    pub leaf_water_data_id: i16,
 }
 
 static_assertions::const_assert_eq!(size_of::<LeafV1>(), 32);
@@ -262,37 +262,97 @@ impl From<LeafV1> for Leaf {
     fn from(value: LeafV1) -> Self {
         Self {
             contents: value.contents,
-            cluster: value.cluster,
-            area_and_flags: value.area_and_flags,
-            mins: value.mins,
-            maxs: value.maxs,
-            first_leaf_face: value.first_leaf_face,
-            leaf_face_count: value.leaf_face_count,
-            first_leaf_brush: value.first_leaf_brush,
-            leaf_brush_count: value.leaf_brush_count,
-            leaf_watter_data_id: value.leaf_watter_data_id,
-            cube: Default::default(),
+            cluster: value.cluster as _,
+            area_and_flags: PackedAreaAndFlags::from_i16(value.area_and_flags),
+            mins: value.mins.map(|v| v as _),
+            maxs: value.maxs.map(|v| v as _),
+            first_leaf_face: value.first_leaf_face as _,
+            leaf_face_count: value.leaf_face_count as _,
+            first_leaf_brush: value.first_leaf_brush as _,
+            leaf_brush_count: value.leaf_brush_count as _,
+            leaf_water_data_id: value.leaf_water_data_id as _,
+            cube: None,
         }
+    }
+}
+
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq)]
+pub struct PackedAreaAndFlags(i32);
+
+impl PackedAreaAndFlags {
+    const AREA_MASK: i32 = 0b1111_1111_1111_1111_1000_0000_0000_0000_u32 as i32;
+    const FLAGS_MASK: i32 = !Self::AREA_MASK;
+
+    pub fn area(&self) -> i32 {
+        (self.0 & Self::AREA_MASK) >> Self::AREA_MASK.trailing_zeros()
+    }
+
+    pub fn flags(&self) -> i32 {
+        self.0 & Self::FLAGS_MASK
+    }
+
+    pub fn from_i16(value: i16) -> Self {
+        const AREA_MASK_16: i16 = 0b1111_1111_1000_0000_u16 as i16;
+        const FLAGS_MASK_16: i16 = !AREA_MASK_16;
+
+        let area = (value & AREA_MASK_16) >> AREA_MASK_16.trailing_zeros();
+        let flags = value & FLAGS_MASK_16;
+
+        Self((area << Self::AREA_MASK.trailing_zeros()) as i32 | flags as i32)
     }
 }
 
 #[derive(Default, Debug, Clone)]
 pub struct Leaf {
     pub contents: i32,
-    pub cluster: i16,
-    pub area_and_flags: i16,
+    pub cluster: i32,
     // first 9 bits is area, last 7 bits is flags
-    pub mins: [i16; 3],
-    pub maxs: [i16; 3],
-    pub first_leaf_face: u16,
-    pub leaf_face_count: u16,
-    pub first_leaf_brush: u16,
-    pub leaf_brush_count: u16,
-    pub leaf_watter_data_id: i16,
-    pub cube: CompressedLightCube,
+    pub area_and_flags: PackedAreaAndFlags,
+    pub mins: [f32; 3],
+    pub maxs: [f32; 3],
+    pub first_leaf_face: u32,
+    pub leaf_face_count: u32,
+    pub first_leaf_brush: u32,
+    pub leaf_brush_count: u32,
+    pub leaf_water_data_id: i32,
+    pub cube: Option<CompressedLightCube>,
 }
 
-static_assertions::const_assert_eq!(size_of::<Leaf>(), 56);
+// static_assertions::const_assert_eq!(size_of::<Leaf>(), 56);
+
+#[derive(Default, Debug, Clone, BinRead)]
+pub struct LeafV2 {
+    pub contents: i32,
+    pub cluster: i32,
+    // first 17 bits is area, last 15 bits is flags
+    pub area_and_flags: i32,
+    pub mins: [f32; 3],
+    pub maxs: [f32; 3],
+    pub first_leaf_face: u32,
+    pub leaf_face_count: u32,
+    pub first_leaf_brush: u32,
+    pub leaf_brush_count: u32,
+    pub leaf_water_data_id: i32,
+    // Ambient light cube accessed via LUMP_LEAF_AMBIENT_INDEX
+}
+
+impl From<LeafV2> for Leaf {
+    fn from(value: LeafV2) -> Self {
+        Self {
+            contents: value.contents,
+            cluster: value.cluster,
+            area_and_flags: PackedAreaAndFlags(value.area_and_flags),
+            mins: value.mins,
+            maxs: value.maxs,
+            first_leaf_face: value.first_leaf_face,
+            leaf_face_count: value.leaf_face_count,
+            first_leaf_brush: value.first_leaf_brush,
+            leaf_brush_count: value.leaf_brush_count,
+            leaf_water_data_id: value.leaf_water_data_id,
+            cube: Default::default(),
+        }
+    }
+}
 
 #[test]
 fn test_leaf_bytes() {
@@ -315,6 +375,7 @@ impl BinRead for Leaf {
         match args.version {
             0 => LeafV0::read_options(reader, endian, ()).map(Leaf::from),
             1 => LeafV1::read_options(reader, endian, ()).map(Leaf::from),
+            2 => LeafV2::read_options(reader, endian, ()).map(Leaf::from),
             version => Err(binrw::Error::Custom {
                 err: Box::new(crate::error::UnsupportedLumpVersion {
                     lump_type: "leaves",

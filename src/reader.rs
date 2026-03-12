@@ -29,6 +29,14 @@ impl<'a> LumpReader<Cursor<Cow<'a, [u8]>>> {
 }
 
 impl<R: BinReaderExt + Read> LumpReader<R> {
+    pub fn args(&self) -> LumpArgs {
+        LumpArgs {
+            type_: self.lump,
+            length: self.length,
+            version: self.version,
+        }
+    }
+
     pub fn read_entities(&mut self) -> BspResult<Entities> {
         let mut data: Vec<u8> = vec![0; self.length];
         self.inner.read_exact(&mut data)?;
@@ -74,11 +82,15 @@ impl<R: BinReaderExt + Read> LumpReader<R> {
         // );
         Ok(result)
     }
+
     pub fn read_args<'a, T: BinRead<Args<'a> = LumpArgs> + Debug>(&mut self) -> BspResult<T> {
-        let args = LumpArgs {
-            length: self.length,
-            version: self.version,
-        };
+        self.read_with_args(self.args())
+    }
+
+    pub fn read_with_args<'a, T: BinRead<Args<'a> = LumpArgs> + Debug>(
+        &mut self,
+        args: LumpArgs,
+    ) -> BspResult<T> {
         let result = T::read_options(&mut self.inner, binrw::Endian::Little, args)?;
         Ok(result)
     }

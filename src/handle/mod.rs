@@ -2,8 +2,8 @@ mod displacement;
 mod face;
 mod game;
 
-use crate::data::*;
 use crate::Bsp;
+use crate::data::*;
 use ahash::RandomState;
 use std::fmt::{Debug, Formatter};
 use std::ops::Deref;
@@ -53,7 +53,7 @@ impl<'a, T> Handle<'a, T> {
 
 impl<'a> Handle<'a, Model> {
     /// Get all faces that make up the model
-    pub fn faces(&self) -> impl Iterator<Item = Handle<'a, Face>> {
+    pub fn faces(&self) -> impl Iterator<Item = Handle<'a, FaceV2>> {
         let start = self.first_face as usize;
         let end = start + self.face_count as usize;
         let bsp = self.bsp;
@@ -103,7 +103,7 @@ impl<'a> Handle<'a, Leaf> {
     }
 
     /// Get all faces in this leaf
-    pub fn faces(&self) -> impl Iterator<Item = Handle<'a, Face>> {
+    pub fn faces(&self) -> impl Iterator<Item = Handle<'a, FaceV2>> {
         let start = self.first_leaf_face as usize;
         let end = start + self.leaf_face_count as usize;
         let bsp = self.bsp;

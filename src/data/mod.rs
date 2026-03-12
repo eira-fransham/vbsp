@@ -8,6 +8,7 @@ pub use self::displacement::*;
 pub use self::entity::*;
 pub use self::game::*;
 pub use self::leaves::*;
+use crate::BspError;
 use crate::bspfile::LumpType;
 use crate::{BspResult, StringError};
 use arrayvec::ArrayString;
@@ -22,11 +23,12 @@ use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::io::{Cursor, Read, Seek};
 use std::mem::size_of;
+use std::ops::Deref;
 use std::ops::Index;
 use std::sync::Mutex;
 pub use vbsp_common::{Angles, Color, EntityProp, LightColor, Negated, PropPlacement, Vector};
-use zip::result::ZipError;
 use zip::ZipArchive;
+use zip::result::ZipError;
 
 /// Validate that reading the type consumes `size_of::<T>()` bytes
 #[cfg(test)]
@@ -141,6 +143,8 @@ pub enum BspVersion {
     Version19 = 19,
     Version20 = 20,
     Version21 = 21,
+    // Portal revolution
+    Version25 = 25,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BinRead)]
@@ -150,8 +154,9 @@ pub struct Header {
     pub version: BspVersion,
 }
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug)]
 pub struct LumpArgs {
+    pub type_: LumpType,
     pub length: usize,
     pub version: u32,
 }
@@ -297,7 +302,7 @@ pub struct Plane {
 }
 
 #[derive(Debug, Clone, BinRead)]
-pub struct Node {
+pub struct NodeV0 {
     pub plane_index: i32,
     pub children: [i32; 2],
     pub mins: [i16; 3],
@@ -305,10 +310,39 @@ pub struct Node {
     pub first_face: u16,
     pub face_count: u16,
     pub area: i16,
-    pub padding: i16,
+    pub _padding: i16,
 }
 
-static_assertions::const_assert_eq!(size_of::<Node>(), 32);
+static_assertions::const_assert_eq!(size_of::<NodeV0>(), 32);
+
+#[derive(Debug, Clone, BinRead)]
+pub struct Node {
+    pub plane_index: i32,
+    pub children: [i32; 2],
+    pub mins: [f32; 3],
+    pub maxs: [f32; 3],
+    pub first_face: u32,
+    pub face_count: u32,
+    pub area: i16,
+    pub _padding: i16,
+}
+
+static_assertions::const_assert_eq!(size_of::<Node>(), 48);
+
+impl From<NodeV0> for Node {
+    fn from(value: NodeV0) -> Self {
+        Self {
+            plane_index: value.plane_index,
+            children: value.children,
+            mins: value.mins.map(|val| val as _),
+            maxs: value.maxs.map(|val| val as _),
+            first_face: value.first_face as _,
+            face_count: value.face_count as _,
+            area: value.area,
+            _padding: value._padding,
+        }
+    }
+}
 
 #[derive(Debug, Clone, BinRead)]
 pub struct LeafBrush {
@@ -431,7 +465,7 @@ impl SurfaceEdge {
 }
 
 #[derive(Debug, Clone, BinRead)]
-pub struct Face {
+pub struct FaceV1 {
     pub plane_num: u16,
     pub side: u8,
     pub on_node: u8,
@@ -451,13 +485,167 @@ pub struct Face {
     pub smoothing_groups: u32,
 }
 
-impl Face {
+impl FaceV1 {
     pub fn displacement_index(&self) -> Option<i16> {
         (self.displacement_info >= 0).then_some(self.displacement_info)
     }
 }
 
-static_assertions::const_assert_eq!(size_of::<Face>(), 56);
+#[derive(Debug, Clone, BinRead)]
+pub struct PackedPrimitiveCount(u32);
+
+impl PackedPrimitiveCount {
+    const ENABLE_SHADOWS_MASK: u32 = 1 << 31;
+
+    pub fn primitive_count(&self) -> u32 {
+        self.0 & !Self::ENABLE_SHADOWS_MASK
+    }
+
+    pub fn enable_shadows(&self) -> bool {
+        (self.0 & Self::ENABLE_SHADOWS_MASK) != 0
+    }
+
+    pub fn pack(primitive_count: u32, enable_shadows: bool) -> Self {
+        let flag = if enable_shadows {
+            Self::ENABLE_SHADOWS_MASK
+        } else {
+            0
+        };
+
+        assert_eq!(primitive_count & Self::ENABLE_SHADOWS_MASK, 0);
+
+        Self(primitive_count | flag)
+    }
+}
+
+#[derive(Debug, Clone, BinRead)]
+pub struct FaceV2 {
+    pub plane_num: u32,
+    pub side: u8,
+    pub on_node: u8,
+    pub first_edge: i32,
+    pub num_edges: i32,
+    pub texture_info: i32,
+    pub displacement_info: i32,
+    pub surface_fog_volume_id: i32,
+    pub styles: [u8; 4],
+    pub light_offset: i32,
+    pub area: f32,
+    pub light_map_texture_min: [i32; 2],
+    pub light_map_texture_size: [i32; 2],
+    pub original_face: i32,
+    pub primitive_count: PackedPrimitiveCount,
+    pub first_primitive_index: u32,
+    pub smoothing_groups: u32,
+}
+
+static_assertions::const_assert_eq!(size_of::<TextureInfo>(), 72);
+
+#[derive(Debug, Clone)]
+pub struct Faces {
+    pub faces: Vec<FaceV2>,
+}
+
+impl Deref for Faces {
+    type Target = [FaceV2];
+
+    fn deref(&self) -> &Self::Target {
+        &*self.faces
+    }
+}
+
+impl BinRead for Faces {
+    type Args<'a> = LumpArgs;
+
+    fn read_options<R: Read + Seek>(
+        reader: &mut R,
+        endian: Endian,
+        args: Self::Args<'_>,
+    ) -> BinResult<Self> {
+        let item_size = match args.version {
+            // TODO: Is FaceV0 different?
+            0 | 1 => size_of::<FaceV1>(),
+            2 => size_of::<FaceV2>(),
+            version => {
+                return Err(binrw::Error::Custom {
+                    err: Box::new(BspError::LumpVersion(
+                        crate::error::UnsupportedLumpVersion {
+                            lump_type: "faces",
+                            version: version as u16,
+                        },
+                    )),
+                    pos: reader.stream_position().unwrap(),
+                });
+            }
+        };
+        if args.length % item_size != 0 {
+            return Err(binrw::Error::Custom {
+                err: Box::new(BspError::InvalidLumpSize {
+                    lump: args.type_,
+                    element_size: item_size,
+                    lump_size: args.length,
+                }),
+                pos: reader.stream_position().unwrap(),
+            });
+        }
+        let num_entries = args.length / item_size;
+        let mut faces = Vec::with_capacity(num_entries);
+
+        for _ in 0..num_entries {
+            let face = match args.version {
+                0 | 1 => FaceV1::read_options(reader, endian, ())?.into(),
+                2 => FaceV2::read_options(reader, endian, ())?,
+                version => {
+                    return Err(binrw::Error::Custom {
+                        err: Box::new(BspError::LumpVersion(
+                            crate::error::UnsupportedLumpVersion {
+                                lump_type: "faces",
+                                version: version as u16,
+                            },
+                        )),
+                        pos: reader.stream_position().unwrap(),
+                    });
+                }
+            };
+
+            faces.push(face);
+        }
+
+        Ok(Self { faces })
+    }
+}
+
+impl From<FaceV1> for FaceV2 {
+    fn from(value: FaceV1) -> Self {
+        Self {
+            plane_num: value.plane_num as _,
+            side: value.side,
+            on_node: value.on_node,
+            first_edge: value.first_edge,
+            num_edges: value.num_edges as _,
+            texture_info: value.texture_info as _,
+            displacement_info: value.displacement_info as _,
+            surface_fog_volume_id: value.surface_fog_volume_id as _,
+            styles: value.styles,
+            light_offset: value.light_offset,
+            area: value.area,
+            light_map_texture_min: value.light_map_texture_min,
+            light_map_texture_size: value.light_map_texture_size,
+            original_face: value.original_face,
+            primitive_count: PackedPrimitiveCount::pack(value.primitive_count as _, true),
+            first_primitive_index: value.first_primitive_index as _,
+            smoothing_groups: value.smoothing_groups,
+        }
+    }
+}
+
+impl FaceV2 {
+    pub fn displacement_index(&self) -> Option<i32> {
+        (self.displacement_info >= 0).then_some(self.displacement_info)
+    }
+}
+
+static_assertions::const_assert_eq!(size_of::<FaceV1>(), 56);
 
 #[derive(Default, Debug, Clone)]
 pub struct VisData {
@@ -468,8 +656,11 @@ pub struct VisData {
 }
 
 impl VisData {
-    pub fn visible_clusters(&self, cluster: i16) -> BitVec<u8> {
-        let offset = self.pvs_offsets[cluster as usize] as usize;
+    pub fn visible_clusters(&self, cluster: i32) -> BitVec<u8> {
+        let Ok(cluster) = usize::try_from(cluster) else {
+            return Default::default();
+        };
+        let offset = self.pvs_offsets[cluster] as usize;
         let pvs_buffer = &self.data[offset..];
         let mut visible_clusters = BitVec::with_capacity(min(self.cluster_count as u64, 1024));
         visible_clusters.resize(self.cluster_count as u64, false);
