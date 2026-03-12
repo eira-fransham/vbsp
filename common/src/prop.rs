@@ -1,12 +1,11 @@
-use crate::Vector;
-use cgmath::Quaternion;
+use glam::{Quat, Vec3};
 
 #[derive(Debug, Clone)]
 pub struct PropPlacement<'a> {
     pub model: &'a str,
-    pub rotation: Quaternion<f32>,
+    pub rotation: Quat,
     pub scale: f32,
-    pub origin: Vector,
+    pub origin: Vec3,
     pub skin: i32,
 }
 

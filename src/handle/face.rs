@@ -1,5 +1,6 @@
 use super::Handle;
 use crate::data::*;
+use glam::Vec3;
 use itertools::Either;
 
 impl<'a> Handle<'a, FaceV2> {
@@ -61,7 +62,7 @@ impl<'a> Handle<'a, FaceV2> {
     /// Triangulate the face
     ///
     /// Triangulation only works for faces that can be turned into a triangle fan trivially
-    pub fn triangulate(&self) -> impl Iterator<Item = [Vector; 3]> + 'a {
+    pub fn triangulate(&self) -> impl Iterator<Item = [Vec3; 3]> + 'a {
         let mut vertices = self.vertices();
 
         let a = vertices.next().expect("face with <3 points");
@@ -81,14 +82,14 @@ impl<'a> Handle<'a, FaceV2> {
     /// Get the vertex positions for the face
     ///
     /// This either calculates the displacement or normal triangulation depending on the face
-    pub fn vertex_positions(&self) -> impl Iterator<Item = Vector> + 'a {
+    pub fn vertex_positions(&self) -> impl Iterator<Item = Vec3> + 'a {
         self.displacement()
             .map(|displacement| displacement.triangulated_displaced_vertices())
             .map(Either::Left)
             .unwrap_or_else(|| Either::Right(self.triangulate().flatten()))
     }
 
-    pub fn normal(&self) -> Vector {
+    pub fn normal(&self) -> Vec3 {
         self.bsp.plane(self.plane_num as usize).unwrap().normal
     }
 }

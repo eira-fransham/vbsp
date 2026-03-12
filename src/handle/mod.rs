@@ -5,6 +5,8 @@ mod game;
 use crate::Bsp;
 use crate::data::*;
 use ahash::RandomState;
+use glam::Vec2;
+use glam::Vec3;
 use std::fmt::{Debug, Formatter};
 use std::ops::Deref;
 
@@ -129,24 +131,12 @@ impl<'a> Handle<'a, TextureInfo> {
         self.texture_data().debug_color()
     }
 
-    pub fn u(&self, pos: Vector) -> f32 {
-        (self.texture_transforms_u[0] * pos.x
-            + self.texture_transforms_u[1] * pos.y
-            + self.texture_transforms_u[2] * pos.z
-            + self.texture_transforms_u[3])
-            / self.texture_data().width as f32
+    pub fn uv(&self, pos: Vec3) -> Vec2 {
+        self.texture_transforms.project(pos)
     }
 
-    pub fn v(&self, pos: Vector) -> f32 {
-        (self.texture_transforms_v[0] * pos.x
-            + self.texture_transforms_v[1] * pos.y
-            + self.texture_transforms_v[2] * pos.z
-            + self.texture_transforms_v[3])
-            / self.texture_data().height as f32
-    }
-
-    pub fn uv(&self, pos: Vector) -> [f32; 2] {
-        [self.u(pos), self.v(pos)]
+    pub fn lightmap_uv(&self, pos: Vec3) -> Vec2 {
+        self.lightmap_transforms.project(pos)
     }
 }
 

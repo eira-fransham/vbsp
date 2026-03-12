@@ -1,6 +1,7 @@
 use super::Handle;
 use crate::data::*;
 use arrayvec::ArrayVec;
+use glam::Vec3;
 
 impl<'a> Handle<'a, DisplacementInfo> {
     pub fn edge_neighbours(
@@ -35,7 +36,7 @@ impl<'a> Handle<'a, DisplacementInfo> {
     }
 
     /// Get the positions of the corners of the displaced face
-    fn corner_positions(&self) -> [Vector; 4] {
+    fn corner_positions(&self) -> [Vec3; 4] {
         let face = self.face().unwrap();
         let vertices: [_; 4] = face
             .vertices()
@@ -43,7 +44,7 @@ impl<'a> Handle<'a, DisplacementInfo> {
             .as_ref()
             .try_into()
             .unwrap();
-        let mut corner_positions: [Vector; 4] = vertices.map(|v| v.position);
+        let mut corner_positions: [Vec3; 4] = vertices.map(|v| v.position);
 
         // find the corner closest to the start position of the displacement
         let start_index = corner_positions
@@ -51,7 +52,12 @@ impl<'a> Handle<'a, DisplacementInfo> {
             .copied()
             .map(|point| point - self.start_position)
             .enumerate()
-            .min_by(|(_a, a_pos), (_b, b_pos)| (a_pos).partial_cmp(b_pos).unwrap())
+            .min_by(|(_a, a_pos), (_b, b_pos)| {
+                a_pos
+                    .length_squared()
+                    .partial_cmp(&b_pos.length_squared())
+                    .unwrap()
+            })
             .map(|(i, _pos)| i)
             .unwrap();
 
@@ -59,7 +65,7 @@ impl<'a> Handle<'a, DisplacementInfo> {
         corner_positions
     }
 
-    fn subdivided_face(&self) -> impl Iterator<Item = Vector> + use<'a> {
+    fn subdivided_face(&self) -> impl Iterator<Item = Vec3> + use<'a> {
         let steps = 2usize.pow(self.power as u32) + 1;
         let corner_positions = self.corner_positions();
 
@@ -81,13 +87,13 @@ impl<'a> Handle<'a, DisplacementInfo> {
             })
     }
 
-    pub fn displaced_vertices(&self) -> impl Iterator<Item = Vector> + use<'a> {
+    pub fn displaced_vertices(&self) -> impl Iterator<Item = Vec3> + use<'a> {
         self.displacement_vertices()
             .zip(self.subdivided_face())
             .map(move |(displacement, base_pos)| base_pos + displacement.displacement())
     }
 
-    pub fn triangulated_displaced_vertices(&self) -> impl Iterator<Item = Vector> + use<'a> {
+    pub fn triangulated_displaced_vertices(&self) -> impl Iterator<Item = Vec3> + use<'a> {
         let vertices: Vec<_> = self.displaced_vertices().collect();
         let steps = 2usize.pow(self.power as u32);
 

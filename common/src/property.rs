@@ -1,4 +1,5 @@
-use crate::{Angles, Color, LightColor, Negated, Vector};
+use crate::{Angles, Color, LightColor, Negated};
+use glam::{DVec3, IVec3, UVec3, Vec3};
 use std::num::{ParseFloatError, ParseIntError};
 use std::str::FromStr;
 use thiserror::Error;
@@ -7,17 +8,41 @@ pub trait EntityProp<'a>: Sized {
     fn parse(raw: &'a str) -> Result<Self, EntityParseError>;
 }
 
+impl<'a> EntityProp<'a> for Vec3 {
+    fn parse(raw: &'a str) -> Result<Self, EntityParseError> {
+        Ok(<[_; 3]>::parse(raw)?.into())
+    }
+}
+
+impl<'a> EntityProp<'a> for UVec3 {
+    fn parse(raw: &'a str) -> Result<Self, EntityParseError> {
+        Ok(<[_; 3]>::parse(raw)?.into())
+    }
+}
+
+impl<'a> EntityProp<'a> for DVec3 {
+    fn parse(raw: &'a str) -> Result<Self, EntityParseError> {
+        Ok(<[_; 3]>::parse(raw)?.into())
+    }
+}
+
+impl<'a> EntityProp<'a> for IVec3 {
+    fn parse(raw: &'a str) -> Result<Self, EntityParseError> {
+        Ok(<[_; 3]>::parse(raw)?.into())
+    }
+}
+
 /// Properties that can be parsed with their FromStr implementation
 pub trait FromStrProp: FromStr {}
 
 impl FromStrProp for u8 {}
 impl FromStrProp for u16 {}
 impl FromStrProp for f32 {}
+impl FromStrProp for f64 {}
 impl FromStrProp for u32 {}
 impl FromStrProp for i32 {}
 impl FromStrProp for Color {}
 impl FromStrProp for Angles {}
-impl FromStrProp for Vector {}
 impl FromStrProp for LightColor {}
 impl FromStrProp for Negated {}
 

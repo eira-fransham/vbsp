@@ -1,8 +1,8 @@
 use crate::data::try_read_enum;
 use crate::error::InvalidNeighbourError;
-use crate::Vector;
 use binrw::{BinRead, BinResult, Endian};
 use bitflags::bitflags;
+use glam::Vec3;
 use num_enum::TryFromPrimitive;
 use std::fmt::Debug;
 use std::io::{Read, Seek, SeekFrom};
@@ -10,7 +10,8 @@ use std::mem::{align_of, size_of};
 
 #[derive(Debug, Clone, BinRead)]
 pub struct DisplacementInfo {
-    pub start_position: Vector,
+    #[br(map = |vals: [f32; 3]| vals.into())]
+    pub start_position: Vec3,
     pub displacement_vertex_start: i32,
     pub displacement_triangle_tag_start: i32,
 
@@ -201,13 +202,14 @@ fn test_corner_neighbour_bytes() {
 
 #[derive(Debug, Clone, BinRead)]
 pub struct DisplacementVertex {
-    pub vector: Vector,
+    #[br(map = |vals: [f32; 3]| vals.into())]
+    pub vector: Vec3,
     pub distance: f32,
     pub alpha: f32,
 }
 
 impl DisplacementVertex {
-    pub fn displacement(&self) -> Vector {
+    pub fn displacement(&self) -> Vec3 {
         self.vector * self.distance
     }
 }

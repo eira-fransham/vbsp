@@ -1,6 +1,6 @@
 use crate::EntityParseError;
 use binrw::BinRead;
-use cgmath::{Deg, Quaternion, Rotation3};
+use glam::Quat;
 use serde::de::{Error, Unexpected};
 use serde::{Deserialize, Deserializer};
 use std::str::FromStr;
@@ -36,10 +36,7 @@ impl FromStr for Angles {
 }
 
 impl Angles {
-    pub fn as_quaternion(&self) -> Quaternion<f32> {
-        // angles are applied in roll, pitch, yaw order
-        Quaternion::from_angle_y(Deg(self.yaw))
-            * Quaternion::from_angle_x(Deg(self.pitch))
-            * Quaternion::from_angle_z(Deg(self.roll))
+    pub fn as_quaternion(&self) -> Quat {
+        Quat::from_euler(glam::EulerRot::YXZ, self.yaw, self.pitch, self.roll)
     }
 }

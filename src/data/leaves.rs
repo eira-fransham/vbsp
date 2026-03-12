@@ -5,6 +5,7 @@ use std::ops::Deref;
 use binrw::{BinRead, BinResult, Endian};
 
 use crate::BspError;
+use crate::lighting::CompressedLightCube;
 
 use super::LumpArgs;
 
@@ -190,19 +191,6 @@ impl<'a> IntoIterator for &'a mut Leaves {
     }
 }
 
-#[derive(BinRead, Debug, Default, Clone, Copy)]
-pub struct ColorRGBExp32 {
-    pub r: u8,
-    pub g: u8,
-    pub b: u8,
-    pub exponent: i8,
-}
-
-#[derive(BinRead, Debug, Default, Clone, Copy)]
-pub struct CompressedLightCube {
-    pub color: [ColorRGBExp32; 6],
-}
-
 #[derive(Default, Debug, Clone, BinRead)]
 pub struct LeafV0 {
     pub contents: i32,
@@ -215,7 +203,7 @@ pub struct LeafV0 {
     pub leaf_face_count: u16,
     pub first_leaf_brush: u16,
     pub leaf_brush_count: u16,
-    pub leaf_watter_data_id: i16,
+    pub leaf_water_data_id: i16,
     #[br(align_after = align_of::< LeafV0 > ())]
     pub cube: CompressedLightCube,
 }
@@ -234,7 +222,7 @@ impl From<LeafV0> for Leaf {
             leaf_face_count: value.leaf_face_count as _,
             first_leaf_brush: value.first_leaf_brush as _,
             leaf_brush_count: value.leaf_brush_count as _,
-            leaf_water_data_id: value.leaf_watter_data_id as _,
+            leaf_water_data_id: value.leaf_water_data_id as _,
             cube: Some(value.cube),
         }
     }

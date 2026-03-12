@@ -1,7 +1,8 @@
 use crate::error::UnsupportedLumpVersion;
-use crate::{lzma_decompress_with_header, Angles, BspError, FixedString, Vector};
+use crate::{Angles, BspError, FixedString, lzma_decompress_with_header};
 use binrw::{BinRead, BinReaderExt, BinResult, Endian};
 use bitflags::bitflags;
+use glam::Vec3;
 use std::borrow::Cow;
 use std::io::{Cursor, Read, Seek};
 
@@ -118,7 +119,7 @@ pub struct StaticPropLumps {
 
 #[derive(Debug, Clone, Default)]
 pub struct StaticPropLump {
-    pub origin: Vector,
+    pub origin: Vec3,
     pub angles: Angles,
     pub prop_type: u16,
     pub first_leaf: u16,
@@ -127,7 +128,7 @@ pub struct StaticPropLump {
     pub skin: i32,
     pub fade_min_distance: f32,
     pub fade_max_distance: f32,
-    pub lighting_origin: Vector,
+    pub lighting_origin: Vec3,
     pub forced_fade_scale: f32,
     pub min_dx_level: u16,
     pub max_dx_level: u16,
@@ -194,7 +195,8 @@ pub enum SolidType {
 #[derive(BinRead)]
 #[br(import(version: u16))]
 struct RawStaticPropLump {
-    pub origin: Vector,
+    #[br(map = |vals: [f32; 3]| vals.into())]
+    pub origin: Vec3,
     pub angles: Angles,
     pub prop_type: u16,
     pub first_leaf: u16,
@@ -204,7 +206,8 @@ struct RawStaticPropLump {
     pub skin: i32,
     pub fade_min_distance: f32,
     pub fade_max_distance: f32,
-    pub lighting_origin: Vector,
+    #[br(map = |vals: [f32; 3]| vals.into())]
+    pub lighting_origin: Vec3,
     #[br(if(version >= 5))]
     pub forced_fade_scale: f32,
     #[br(if(version >= 6))]

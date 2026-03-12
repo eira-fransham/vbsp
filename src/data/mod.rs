@@ -2,6 +2,7 @@ mod displacement;
 mod entity;
 mod game;
 mod leaves;
+pub mod lighting;
 mod prop;
 
 pub use self::displacement::*;
@@ -16,6 +17,8 @@ use binrw::error::CustomError;
 use binrw::{BinRead, BinResult, Endian};
 use bitflags::bitflags;
 use bv::BitVec;
+use glam::Vec2;
+use glam::Vec3;
 use num_enum::{TryFromPrimitive, TryFromPrimitiveError};
 use std::borrow::Cow;
 use std::cmp::min;
@@ -26,7 +29,7 @@ use std::mem::size_of;
 use std::ops::Deref;
 use std::ops::Index;
 use std::sync::Mutex;
-pub use vbsp_common::{Angles, Color, EntityProp, LightColor, Negated, PropPlacement, Vector};
+pub use vbsp_common::{Angles, Color, EntityProp, LightColor, Negated, PropPlacement};
 use zip::ZipArchive;
 use zip::result::ZipError;
 
@@ -273,11 +276,34 @@ impl<const LEN: usize> BinRead for FixedString<LEN> {
 }
 
 #[derive(Debug, Clone, BinRead)]
+pub struct TextureCoord {
+    #[br(map = |vals: [f32; 3]| vals.into())]
+    pub axis: Vec3,
+    pub offset: f32,
+}
+
+impl TextureCoord {
+    pub fn project(&self, position: Vec3) -> f32 {
+        (self.axis.as_dvec3().dot(position.as_dvec3()) + self.offset as f64) as f32
+    }
+}
+
+#[derive(Debug, Clone, BinRead)]
+pub struct PlanarTextureCoords {
+    u: TextureCoord,
+    v: TextureCoord,
+}
+
+impl PlanarTextureCoords {
+    pub fn project(&self, position: Vec3) -> Vec2 {
+        Vec2::new(self.u.project(position), self.v.project(position))
+    }
+}
+
+#[derive(Debug, Clone, BinRead)]
 pub struct TextureInfo {
-    pub texture_transforms_u: [f32; 4],
-    pub texture_transforms_v: [f32; 4],
-    pub light_map_scale: [f32; 4],
-    pub light_map_transform: [f32; 4],
+    pub texture_transforms: PlanarTextureCoords,
+    pub lightmap_transforms: PlanarTextureCoords,
     pub flags: TextureFlags,
     pub texture_data_index: i32,
 }
@@ -286,7 +312,8 @@ static_assertions::const_assert_eq!(size_of::<TextureInfo>(), 72);
 
 #[derive(Debug, Clone, BinRead)]
 pub struct TextureData {
-    pub reflectivity: Vector,
+    #[br(map = |vals: [f32; 3]| vals.into())]
+    pub reflectivity: Vec3,
     pub name_string_table_id: i32,
     pub width: i32,
     pub height: i32,
@@ -296,7 +323,8 @@ pub struct TextureData {
 
 #[derive(Debug, Clone, BinRead)]
 pub struct Plane {
-    pub normal: Vector,
+    #[br(map = |vals: [f32; 3]| vals.into())]
+    pub normal: Vec3,
     pub dist: f32,
     pub ty: i32,
 }
@@ -351,9 +379,12 @@ pub struct LeafBrush {
 
 #[derive(Debug, Clone, BinRead)]
 pub struct Model {
-    pub mins: Vector,
-    pub maxs: Vector,
-    pub origin: Vector,
+    #[br(map = |vals: [f32; 3]| vals.into())]
+    pub mins: Vec3,
+    #[br(map = |vals: [f32; 3]| vals.into())]
+    pub maxs: Vec3,
+    #[br(map = |vals: [f32; 3]| vals.into())]
+    pub origin: Vec3,
     pub head_node: i32,
     pub first_face: i32,
     pub face_count: i32,
@@ -430,7 +461,8 @@ pub struct BrushSide {
 
 #[derive(Debug, Clone, BinRead)]
 pub struct Vertex {
-    pub position: Vector,
+    #[br(map = |vals: [f32; 3]| vals.into())]
+    pub position: Vec3,
 }
 
 #[derive(Debug, Clone, BinRead)]

@@ -12,5 +12,5 @@ rust-version = "1.85.0"
 [dependencies]
 binrw = "0.14.1"
 serde = { version = "1.0.218", features = ["derive"] }
-cgmath = "0.18.0"
+glam = "0.30"
 thiserror = "2.0.11"

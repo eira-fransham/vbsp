@@ -13,11 +13,21 @@ use binrw::io::Cursor;
 use binrw::{BinRead, BinReaderExt};
 use bspfile::BspFile;
 pub use error::{BspError, StringError};
+use glam::Vec3;
 use lzma_rs::decompress::{Options, UnpackedSize};
+use qbsp::data::LightmapStyle;
+use qbsp::mesh::FaceExtents;
+use qbsp::mesh::lightmap::{
+    ComputeLightmapAtlasError, FaceUvs, LightmapAtlas as _, LightmapAtlasOutput, LightmapInfo,
+    LightmapPacker, LightmapPackerFaceView,
+};
 use reader::LumpReader;
 use std::cmp::min;
+use std::collections::HashMap;
 use std::io::Read;
 pub use vbsp_common::{AsPropPlacement, deserialize_bool};
+
+pub use qbsp::data::{BspLighting, lighting::RgbLighting};
 
 pub type BspResult<T> = Result<T, BspError>;
 
@@ -46,6 +56,7 @@ pub struct Bsp {
     pub faces: Faces,
     pub original_faces: Faces,
     pub vis_data: VisData,
+    pub lighting: Option<BspLighting>,
     pub displacements: Vec<DisplacementInfo>,
     pub displacement_vertices: Vec<DisplacementVertex>,
     pub displacement_triangles: Vec<DisplacementTriangle>,
@@ -126,6 +137,16 @@ impl Bsp {
         };
         let original_faces = original_faces_lump.read_with_args(original_faces_lump_args)?;
 
+        let lighting = bsp_file
+            .lump_reader(LumpType::Lighting)
+            .ok()
+            .map(|mut lump| -> BspResult<BspLighting> {
+                let lighting: RgbLighting = lump.read_vec(|r| r.read())?;
+
+                Ok(BspLighting::Colored(lighting))
+            })
+            .transpose()?;
+
         let vis_data = bsp_file.lump_reader(LumpType::Visibility)?.read_visdata()?;
         let displacements = bsp_file
             .lump_reader(LumpType::DisplacementInfo)?
@@ -161,6 +182,7 @@ impl Bsp {
             leaves,
             leaf_faces,
             leaf_brushes,
+            lighting,
             models,
             brushes,
             brush_sides,
@@ -180,6 +202,69 @@ impl Bsp {
         };
         bsp.validate()?;
         Ok(bsp)
+    }
+
+    /// Packs every face's lightmap together onto a single atlas for GPU rendering.
+    pub fn compute_lightmap_atlas<P: LightmapPacker>(
+        &self,
+        mut packer: P,
+    ) -> Result<LightmapAtlasOutput<P>, ComputeLightmapAtlasError> {
+        let Some(lighting) = &self.lighting else {
+            return Err(ComputeLightmapAtlasError::NoLightmaps);
+        };
+
+        let settings = packer.settings();
+
+        let mut lightmap_uvs: HashMap<u32, FaceUvs> = HashMap::new();
+
+        for (face_idx, face) in self.faces().enumerate() {
+            let tex_info = face.texture();
+            let uvs: FaceUvs = face
+                .vertex_positions()
+                .map(|pos| tex_info.lightmap_uv(pos))
+                .collect();
+            let extents = FaceExtents::new(uvs.iter().copied());
+
+            let lm_info = LightmapInfo {
+                uvs,
+                extents,
+                lightmap_offset: face.light_offset,
+            };
+
+            let view = LightmapPackerFaceView {
+                lm_info: &lm_info,
+
+                lightmap_styles: face.styles.map(LightmapStyle),
+                face_idx,
+                lighting,
+            };
+
+            let input = packer.read_from_face(view);
+
+            let frame = packer.pack(view, input)?;
+
+            lightmap_uvs.insert(
+                face_idx as u32,
+                lm_info
+                    .extents
+                    .compute_lightmap_uvs(lm_info.uvs, (frame.min + settings.extrusion).as_vec2())
+                    .collect(),
+            );
+        }
+
+        let atlas = packer.export();
+
+        // Normalize lightmap UVs from texture space
+        for uvs in lightmap_uvs.values_mut() {
+            for uv in uvs {
+                *uv /= atlas.size().as_vec2();
+            }
+        }
+
+        Ok(LightmapAtlasOutput {
+            uvs: lightmap_uvs,
+            data: atlas,
+        })
     }
 
     pub fn leaf(&self, n: usize) -> Option<Handle<'_, Leaf>> {
@@ -232,16 +317,12 @@ impl Bsp {
     }
 
     /// Find a leaf for a specific position
-    pub fn leaf_at(&self, point: Vector) -> Handle<'_, Leaf> {
+    pub fn leaf_at(&self, point: Vec3) -> Handle<'_, Leaf> {
         let mut current = self.root_node();
 
         loop {
             let plane = current.plane();
-            let dot: f32 = point
-                .iter()
-                .zip(plane.normal.iter())
-                .map(|(a, b)| a * b)
-                .sum();
+            let dot = point.dot(plane.normal);
 
             let [front, back] = current.children;
 
@@ -264,8 +345,15 @@ impl Bsp {
     }
 
     /// Get all faces stored in the bsp
-    pub fn original_faces(&self) -> impl Iterator<Item = Handle<'_, FaceV2>> {
+    pub fn faces(&self) -> impl Iterator<Item = Handle<'_, FaceV2>> {
         self.faces.iter().map(move |face| Handle::new(self, face))
+    }
+
+    /// Get all original faces stored in the bsp
+    pub fn original_faces(&self) -> impl Iterator<Item = Handle<'_, FaceV2>> {
+        self.original_faces
+            .iter()
+            .map(move |face| Handle::new(self, face))
     }
 
     fn validate(&self) -> BspResult<()> {

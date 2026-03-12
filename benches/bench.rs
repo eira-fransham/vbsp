@@ -1,6 +1,7 @@
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
+use glam::Vec3;
 use std::hint::black_box;
-use vbsp::{Bsp, Vector};
+use vbsp::Bsp;
 
 const MAP_BYTES: &[u8] = include_bytes!("../koth_bagel_rc2a.bsp");
 
@@ -15,7 +16,7 @@ fn leaf_at(c: &mut Criterion) {
 
     c.bench_function("get leaf at position", |b| {
         b.iter(|| {
-            black_box(bsp.leaf_at(black_box(Vector {
+            black_box(bsp.leaf_at(black_box(Vec3 {
                 x: 0.,
                 y: 0.,
                 z: 0.,
