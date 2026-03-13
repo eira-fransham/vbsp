@@ -19,7 +19,7 @@ fn main() -> Result<(), MainError> {
         .faces()
         .filter(|face| face.is_visible())
         .map(|face| {
-            face.vertex_indexes()
+            face.vertex_indices()
                 .map(|vertex_index| IndexTuple(vertex_index as usize, None, None))
                 .collect()
         })

@@ -93,8 +93,7 @@ impl<'a> Handle<'a, DisplacementInfo> {
             .map(move |(displacement, base_pos)| base_pos + displacement.displacement())
     }
 
-    pub fn triangulated_displaced_vertices(&self) -> impl Iterator<Item = Vec3> + use<'a> {
-        let vertices: Vec<_> = self.displaced_vertices().collect();
+    pub fn triangulated_indices(&self) -> impl Iterator<Item = usize> + use<> {
         let steps = 2usize.pow(self.power as u32);
 
         let index = move |x: usize, y: usize| y * (steps + 1) + x;
@@ -103,14 +102,20 @@ impl<'a> Handle<'a, DisplacementInfo> {
             .flat_map(move |x| (0..steps).map(move |y| (x, y)))
             .flat_map(move |(x, y)| {
                 [
-                    vertices[index(x, y)],
-                    vertices[index(x + 1, y)],
-                    vertices[index(x, y + 1)],
-                    vertices[index(x + 1, y)],
-                    vertices[index(x + 1, y + 1)],
-                    vertices[index(x, y + 1)],
+                    index(x, y),
+                    index(x + 1, y),
+                    index(x, y + 1),
+                    index(x + 1, y),
+                    index(x + 1, y + 1),
+                    index(x, y + 1),
                 ]
             })
+    }
+
+    pub fn triangulated_displaced_vertices(&self) -> impl Iterator<Item = Vec3> + use<'_, 'a> {
+        let vertices: Vec<_> = self.displaced_vertices().collect();
+
+        self.triangulated_indices().map(move |i| vertices[i])
     }
 }
 

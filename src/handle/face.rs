@@ -19,14 +19,14 @@ impl<'a> Handle<'a, FaceV2> {
     /// Get all vertices making up the face
     pub fn vertices(&self) -> impl Iterator<Item = &'a Vertex> + 'a {
         let bsp = self.bsp;
-        self.vertex_indexes()
+        self.vertex_indices()
             .map(move |vert_index| bsp.vertices.get(vert_index as usize).unwrap())
     }
 
     /// Get the vertex indexes of all vertices making up the face
     ///
     /// The indexes index into the `vertices` field of the bsp file
-    pub fn vertex_indexes(&self) -> impl Iterator<Item = u16> + 'a {
+    pub fn vertex_indices(&self) -> impl ExactSizeIterator<Item = u16> + 'a {
         let bsp = self.bsp;
         (self.data.first_edge..(self.data.first_edge + self.data.num_edges as i32))
             .map(move |surface_edge| bsp.surface_edges.get(surface_edge as usize).unwrap())
@@ -40,6 +40,25 @@ impl<'a> Handle<'a, FaceV2> {
                 EdgeDirection::FirstToLast => edge.start_index,
                 EdgeDirection::LastToFirst => edge.end_index,
             })
+    }
+
+    pub fn triangulate_brush_indices(&self) -> impl Iterator<Item = usize> {
+        let mut indices = 0..self.vertex_indices().len();
+
+        let a = indices.next().expect("face with <3 points");
+        let mut b = indices.next().expect("face with <3 points");
+
+        indices.flat_map(move |c| {
+            let points = [c, b, a];
+            b = c;
+            points
+        })
+    }
+
+    pub fn triangulate_indices(&self) -> impl Iterator<Item = usize> + use<'a, '_> {
+        self.displacement()
+            .map(|displacement| Either::Left(displacement.triangulated_indices()))
+            .unwrap_or_else(|| Either::Right(self.triangulate_brush_indices()))
     }
 
     pub fn edge_direction(&self) -> EdgeDirection {
@@ -90,13 +109,11 @@ impl<'a> Handle<'a, FaceV2> {
     }
 
     /// Get the vertex positions for the face
-    ///
-    /// This either calculates the displacement or normal triangulation depending on the face
-    pub fn vertex_positions(&self) -> impl Iterator<Item = Vec3> + 'a {
+    pub fn vertex_positions(&self) -> impl Iterator<Item = Vec3> + 'a + '_ {
         self.displacement()
-            .map(|displacement| displacement.triangulated_displaced_vertices())
+            .map(|displacement| displacement.displaced_vertices())
             .map(Either::Left)
-            .unwrap_or_else(|| Either::Right(self.triangulate().flatten()))
+            .unwrap_or_else(|| Either::Right(self.vertices().map(|v| v.position)))
     }
 
     pub fn normal(&self) -> Vec3 {

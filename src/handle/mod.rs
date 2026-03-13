@@ -15,8 +15,8 @@ use std::ops::Deref;
 /// Keeping a reference of the bsp file with the data is required since a lot of data types
 /// reference parts from other structures in the bsp file
 pub struct Handle<'a, T> {
-    bsp: &'a Bsp,
-    data: &'a T,
+    pub bsp: &'a Bsp,
+    pub data: &'a T,
 }
 
 impl<T: Debug> Debug for Handle<'_, T> {
@@ -63,6 +63,14 @@ impl<'a> Handle<'a, Model> {
         bsp.faces[start..end]
             .iter()
             .map(move |face| Handle::new(bsp, face))
+    }
+
+    /// Get all faces that make up the model
+    pub fn faces_with_id(&self) -> impl Iterator<Item = (i32, Handle<'a, FaceV2>)> {
+        let start = self.first_face;
+        let end = start + self.face_count;
+
+        (start..end).zip(self.faces())
     }
 
     pub fn textures(&self) -> impl Iterator<Item = Handle<'_, TextureInfo>> {

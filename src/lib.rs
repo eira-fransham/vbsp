@@ -14,18 +14,18 @@ use binrw::io::Cursor;
 use binrw::{BinRead, BinReaderExt};
 use bspfile::BspFile;
 pub use error::{BspError, StringError};
-use glam::Vec3;
+use glam::{Vec2, Vec3};
 use image::Rgb;
 use lzma_rs::decompress::{Options, UnpackedSize};
 use qbsp::data::LightmapStyle;
 use qbsp::mesh::lightmap::{
-    ComputeLightmapAtlasError, FaceUvs, LightmapAtlas as _, LightmapAtlasOutput, LightmapInfo,
-    LightmapPacker, LightmapPackerFaceView,
+    ComputeLightmapAtlasError, FaceUvs, LightmapInfo, LightmapPacker, LightmapPackerFaceView,
 };
 use reader::LumpReader;
 use std::cmp::min;
 use std::collections::HashMap;
 use std::io::Read;
+use tracing::warn;
 pub use vbsp_common::{AsPropPlacement, deserialize_bool};
 
 pub use qbsp::data::{BspLighting, lighting::RgbLighting};
@@ -65,6 +65,16 @@ pub struct Bsp {
     vertex_normal_indices: Vec<VertNormalIndex>,
     pub static_props: PropStaticGameLump,
     pub pack: Packfile,
+}
+
+pub struct LightmapAtlasOutput<P: LightmapPacker> {
+    pub offsets: HashMap<u32, Vec2>,
+    pub data: P::Output,
+}
+
+pub struct LightmapResult<R> {
+    pub data: R,
+    pub faces: HashMap<u32, FaceUvs>,
 }
 
 impl Bsp {
@@ -222,21 +232,20 @@ impl Bsp {
 
         let settings = packer.settings();
 
-        let mut lightmap_uvs: HashMap<u32, FaceUvs> = HashMap::new();
+        let mut lightmap_offsets: HashMap<u32, Vec2> = HashMap::new();
 
         for (face_idx, face) in self.faces().enumerate() {
+            let Ok(face_idx_32) = face_idx.try_into() else {
+                warn!("Face ID overflowed u32");
+                continue;
+            };
+
             if face.light_map_texture_size.element_product() == 0 {
-                lightmap_uvs.insert(
-                    face_idx as u32,
-                    face.vertex_indexes().map(|_| Default::default()).collect(),
-                );
+                lightmap_offsets.insert(face_idx as u32, Vec2::ZERO);
                 continue;
             }
 
-            let uvs: FaceUvs = face.lightmap_uvs().collect();
-
             let lm_info = LightmapInfo {
-                uvs: uvs.clone(),
                 lightmap_size: face.light_map_texture_size + 1,
                 // This is in elements, not in pixels (our element size is 3 but in the original map it's 4)
                 lightmap_offset: face.light_offset / 4,
@@ -256,23 +265,13 @@ impl Bsp {
 
             let offset = (frame.min + settings.extrusion).as_vec2();
 
-            lightmap_uvs.insert(
-                face_idx as u32,
-                lm_info.uvs.iter().map(|uv| uv + offset).collect(),
-            );
+            lightmap_offsets.insert(face_idx_32, offset);
         }
 
         let atlas = packer.export();
 
-        // Normalize lightmap UVs from texture space
-        for uvs in lightmap_uvs.values_mut() {
-            for uv in uvs {
-                *uv /= atlas.size().as_vec2();
-            }
-        }
-
         Ok(LightmapAtlasOutput {
-            uvs: lightmap_uvs,
+            offsets: lightmap_offsets,
             data: atlas,
         })
     }
@@ -367,7 +366,7 @@ impl Bsp {
     }
 
     fn validate(&self) -> BspResult<()> {
-        self.validate_indexes(
+        self.validate_indices(
             self.faces
                 .iter()
                 .filter_map(|face| face.displacement_index()),
@@ -375,7 +374,7 @@ impl Bsp {
             "face",
             "displacement",
         )?;
-        self.validate_indexes(
+        self.validate_indices(
             self.displacements
                 .iter()
                 .map(|displacement| displacement.map_face),
@@ -383,7 +382,7 @@ impl Bsp {
             "displacement",
             "face",
         )?;
-        self.validate_indexes(
+        self.validate_indices(
             self.faces
                 .iter()
                 .map(|face| face.first_edge + face.num_edges as i32 - 1),
@@ -391,13 +390,13 @@ impl Bsp {
             "face",
             "surface_edge",
         )?;
-        self.validate_indexes(
+        self.validate_indices(
             self.surface_edges.iter().map(|edge| edge.edge_index()),
             &self.edges,
             "surface_edge",
             "edge",
         )?;
-        self.validate_indexes(
+        self.validate_indices(
             self.edges
                 .iter()
                 .flat_map(|edge| [edge.start_index, edge.end_index]),
@@ -405,7 +404,7 @@ impl Bsp {
             "edge",
             "vertex",
         )?;
-        self.validate_indexes(
+        self.validate_indices(
             self.displacements
                 .iter()
                 .flat_map(|displacement| &displacement.corner_neighbours)
@@ -414,7 +413,7 @@ impl Bsp {
             "displacement",
             "displacement",
         )?;
-        self.validate_indexes(
+        self.validate_indices(
             self.displacements
                 .iter()
                 .flat_map(|displacement| &displacement.edge_neighbours)
@@ -424,13 +423,13 @@ impl Bsp {
             "displacement",
             "displacement",
         )?;
-        self.validate_indexes(
+        self.validate_indices(
             self.faces.iter().map(|face| face.texture_info),
             &self.textures_info,
             "face",
             "texture_info",
         )?;
-        self.validate_indexes(
+        self.validate_indices(
             self.textures_info
                 .iter()
                 .map(|texture| texture.texture_data_index),
@@ -438,7 +437,7 @@ impl Bsp {
             "texture_info",
             "texture_data",
         )?;
-        self.validate_indexes(
+        self.validate_indices(
             self.textures_data
                 .iter()
                 .map(|texture| texture.name_string_table_id),
@@ -446,19 +445,19 @@ impl Bsp {
             "textures_data",
             "texture_string_tables",
         )?;
-        self.validate_indexes(
+        self.validate_indices(
             self.texture_string_tables.iter().copied(),
             self.texture_string_data.as_bytes(),
             "texture_string_tables",
             "texture_string_data",
         )?;
-        self.validate_indexes(
+        self.validate_indices(
             self.nodes.iter().map(|node| node.plane_index),
             &self.planes,
             "node",
             "plane",
         )?;
-        self.validate_indexes(
+        self.validate_indices(
             self.nodes
                 .iter()
                 .flat_map(|node| node.children)
@@ -467,7 +466,7 @@ impl Bsp {
             "node",
             "node",
         )?;
-        self.validate_indexes(
+        self.validate_indices(
             self.nodes
                 .iter()
                 .flat_map(|node| node.children)
@@ -476,13 +475,13 @@ impl Bsp {
             "node",
             "leaf",
         )?;
-        self.validate_indexes(
+        self.validate_indices(
             self.static_props().map(|prop| prop.prop_type),
             &self.static_props.dict.name,
             "static props",
             "static prop models",
         )?;
-        self.validate_indexes(
+        self.validate_indices(
             self.vertex_normal_indices.iter().map(|i| i.index),
             &self.vertex_normals,
             "vertex normal indices",
@@ -502,19 +501,19 @@ impl Bsp {
         Ok(())
     }
 
-    fn validate_indexes<
+    fn validate_indices<
         'b,
         Index: TryInto<usize> + Into<i64> + Copy + Ord + Default,
-        Indexes: Iterator<Item = Index>,
+        Indices: Iterator<Item = Index>,
         T: 'b,
     >(
         &'b self,
-        indexes: Indexes,
+        indices: Indices,
         list: &[T],
         source: &'static str,
         target: &'static str,
     ) -> BspResult<()> {
-        let max = match indexes.max() {
+        let max = match indices.max() {
             Some(max) => max,
             None => return Ok(()),
         };
