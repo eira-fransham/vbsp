@@ -65,7 +65,7 @@ impl<'a> Handle<'a, DisplacementInfo> {
         corner_positions
     }
 
-    fn subdivided_face(&self) -> impl Iterator<Item = Vec3> + use<'a> {
+    pub fn subdivided_face(&self) -> impl Iterator<Item = Vec3> + use<'a> {
         let steps = 2usize.pow(self.power as u32) + 1;
         let corner_positions = self.corner_positions();
 
