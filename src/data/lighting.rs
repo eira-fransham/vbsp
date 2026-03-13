@@ -17,9 +17,7 @@ impl ColorRGBExp32 {
     pub fn to_rgb32f(&self) -> Rgb<f32> {
         let scale = 2f32.powi(self.exponent as i32);
 
-        [self.r, self.g, self.b]
-            .map(|v| scale * (v as f32 / 255.))
-            .into()
+        [self.r, self.g, self.b].map(|v| scale * v as f32).into()
     }
 }
 

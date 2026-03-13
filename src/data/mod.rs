@@ -17,6 +17,8 @@ use binrw::error::CustomError;
 use binrw::{BinRead, BinResult, Endian};
 use bitflags::bitflags;
 use bv::BitVec;
+use glam::IVec2;
+use glam::UVec2;
 use glam::Vec2;
 use glam::Vec3;
 use num_enum::{TryFromPrimitive, TryFromPrimitiveError};
@@ -509,8 +511,10 @@ pub struct FaceV1 {
     pub styles: [u8; 4],
     pub light_offset: i32,
     pub area: f32,
-    pub light_map_texture_min: [i32; 2],
-    pub light_map_texture_size: [i32; 2],
+    #[br(map = <[i32; 2]>::into)]
+    pub light_map_texture_min: IVec2,
+    #[br(map = <[u32; 2]>::into)]
+    pub light_map_texture_size: UVec2,
     pub original_face: i32,
     pub primitive_count: u16,
     pub first_primitive_index: u16,
@@ -563,8 +567,10 @@ pub struct FaceV2 {
     pub styles: [u8; 4],
     pub light_offset: i32,
     pub area: f32,
-    pub light_map_texture_min: [i32; 2],
-    pub light_map_texture_size: [i32; 2],
+    #[br(map = <[i32; 2]>::into)]
+    pub light_map_texture_min: IVec2,
+    #[br(map = <[u32; 2]>::into)]
+    pub light_map_texture_size: UVec2,
     pub original_face: i32,
     pub primitive_count: PackedPrimitiveCount,
     pub first_primitive_index: u32,

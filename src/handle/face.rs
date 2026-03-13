@@ -1,6 +1,6 @@
 use super::Handle;
 use crate::data::*;
-use glam::Vec3;
+use glam::{Vec2, Vec3};
 use itertools::Either;
 
 impl<'a> Handle<'a, FaceV2> {
@@ -57,6 +57,16 @@ impl<'a> Handle<'a, FaceV2> {
                 | TextureFlags::SKIP
                 | TextureFlags::NODRAW,
         )
+    }
+
+    pub fn uvs(&self) -> impl Iterator<Item = Vec2> {
+        self.vertex_positions().map(|pos| self.texture().uv(pos))
+    }
+
+    pub fn lightmap_uvs(&self) -> impl Iterator<Item = Vec2> {
+        self.vertex_positions()
+            .map(|pos| self.texture().lightmap_uv(pos))
+            .map(|uv| uv - self.light_map_texture_min.as_vec2())
     }
 
     /// Triangulate the face

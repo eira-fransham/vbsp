@@ -131,12 +131,12 @@ impl<'a> Handle<'a, TextureInfo> {
         self.texture_data().debug_color()
     }
 
-    pub fn uv(&self, pos: Vec3) -> Vec2 {
-        self.texture_transforms.project(pos)
-    }
-
     pub fn lightmap_uv(&self, pos: Vec3) -> Vec2 {
         self.lightmap_transforms.project(pos)
+    }
+
+    pub fn uv(&self, pos: Vec3) -> Vec2 {
+        self.texture_transforms.project(pos) / self.texture_data().width as f32
     }
 }
 

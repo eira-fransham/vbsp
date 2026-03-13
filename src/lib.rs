@@ -18,7 +18,6 @@ use glam::Vec3;
 use image::Rgb;
 use lzma_rs::decompress::{Options, UnpackedSize};
 use qbsp::data::LightmapStyle;
-use qbsp::mesh::FaceExtents;
 use qbsp::mesh::lightmap::{
     ComputeLightmapAtlasError, FaceUvs, LightmapAtlas as _, LightmapAtlasOutput, LightmapInfo,
     LightmapPacker, LightmapPackerFaceView,
@@ -32,8 +31,6 @@ pub use vbsp_common::{AsPropPlacement, deserialize_bool};
 pub use qbsp::data::{BspLighting, lighting::RgbLighting};
 
 pub type BspResult<T> = Result<T, BspError>;
-
-pub struct FlatRgb32FSamples(pub Vec<f32>);
 
 // TODO: Store all the allocated objects inline to improve cache usage
 /// A parsed bsp file
@@ -60,7 +57,7 @@ pub struct Bsp {
     pub faces: Faces,
     pub original_faces: Faces,
     pub vis_data: VisData,
-    pub lighting_rgb32f: Option<Vec<f32>>,
+    pub lighting: Option<Vec<ColorRGBExp32>>,
     pub displacements: Vec<DisplacementInfo>,
     pub displacement_vertices: Vec<DisplacementVertex>,
     pub displacement_triangles: Vec<DisplacementTriangle>,
@@ -142,15 +139,11 @@ impl Bsp {
         let original_faces = original_faces_lump.read_with_args(original_faces_lump_args)?;
 
         let lighting_rgb32f = bsp_file
-            .lump_reader(LumpType::Lighting)
+            .lump_reader(LumpType::LightingHdr)
             .ok()
-            .map(|mut lump| {
-                lump.read_vec(|r| r.read()).map(|vec: Vec<ColorRGBExp32>| {
-                    vec.into_iter()
-                        .flat_map(|pixel| pixel.to_rgb32f().0)
-                        .collect()
-                })
-            })
+            .filter(|b| b.args().length > 0)
+            .or_else(|| bsp_file.lump_reader(LumpType::Lighting).ok())
+            .map(|mut lump| lump.read_vec(|r| r.read()))
             .transpose()?;
 
         let vis_data = bsp_file.lump_reader(LumpType::Visibility)?.read_visdata()?;
@@ -188,7 +181,7 @@ impl Bsp {
             leaves,
             leaf_faces,
             leaf_brushes,
-            lighting_rgb32f,
+            lighting: lighting_rgb32f,
             models,
             brushes,
             brush_sides,
@@ -210,12 +203,20 @@ impl Bsp {
         Ok(bsp)
     }
 
+    pub fn lighting_rgb32f(&self) -> Option<Vec<f32>> {
+        self.lighting.as_ref().map(|vec| {
+            vec.into_iter()
+                .flat_map(|pixel| pixel.to_rgb32f().0)
+                .collect()
+        })
+    }
+
     /// Packs every face's lightmap together onto a single atlas for GPU rendering.
     pub fn compute_lightmap_atlas<P: LightmapPacker>(
         &self,
         mut packer: P,
     ) -> Result<LightmapAtlasOutput<P>, ComputeLightmapAtlasError> {
-        let Some(lighting) = &self.lighting_rgb32f else {
+        let Some(lighting) = self.lighting_rgb32f() else {
             return Err(ComputeLightmapAtlasError::NoLightmaps);
         };
 
@@ -224,17 +225,21 @@ impl Bsp {
         let mut lightmap_uvs: HashMap<u32, FaceUvs> = HashMap::new();
 
         for (face_idx, face) in self.faces().enumerate() {
-            let tex_info = face.texture();
-            let uvs: FaceUvs = face
-                .vertex_positions()
-                .map(|pos| tex_info.lightmap_uv(pos))
-                .collect();
-            let extents = FaceExtents::new(uvs.iter().copied());
+            if face.light_map_texture_size.element_product() == 0 {
+                lightmap_uvs.insert(
+                    face_idx as u32,
+                    face.vertex_indexes().map(|_| Default::default()).collect(),
+                );
+                continue;
+            }
+
+            let uvs: FaceUvs = face.lightmap_uvs().collect();
 
             let lm_info = LightmapInfo {
-                uvs,
-                extents,
-                lightmap_offset: face.light_offset,
+                uvs: uvs.clone(),
+                lightmap_size: face.light_map_texture_size + 1,
+                // This is in elements, not in pixels (our element size is 3 but in the original map it's 4)
+                lightmap_offset: face.light_offset / 4,
             };
 
             let view = LightmapPackerFaceView {
@@ -242,19 +247,18 @@ impl Bsp {
 
                 lightmap_styles: face.styles.map(LightmapStyle),
                 face_idx,
-                lighting_buffer: lighting,
+                lighting_buffer: &lighting,
             };
 
             let input = packer.read_from_face::<Rgb<f32>>(view);
 
             let frame = packer.pack::<Rgb<f32>>(view, input)?;
 
+            let offset = (frame.min + settings.extrusion).as_vec2();
+
             lightmap_uvs.insert(
                 face_idx as u32,
-                lm_info
-                    .extents
-                    .compute_lightmap_uvs(lm_info.uvs, (frame.min + settings.extrusion).as_vec2())
-                    .collect(),
+                lm_info.uvs.iter().map(|uv| uv + offset).collect(),
             );
         }
 
