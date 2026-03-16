@@ -11,8 +11,8 @@ use crate::data::lighting::{
 };
 pub use crate::data::*;
 use crate::error::ValidationError;
+pub use crate::handle::Handle;
 use crate::handle::HandleGeneric;
-pub use crate::handle::{Handle, LightmapDisplacementUvResult, lightmap_displacement_uvs};
 use binrw::io::Cursor;
 use binrw::{BinRead, BinReaderExt};
 use bspfile::BspFile;

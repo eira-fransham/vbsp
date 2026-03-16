@@ -1,7 +1,7 @@
 use super::Handle;
 use crate::data::*;
-use glam::{IVec2, Vec2, Vec3, Vec3Swizzles};
-use itertools::{Either, Itertools};
+use glam::{Vec2, Vec3};
+use itertools::Either;
 
 impl<'a> Handle<'a, FaceV2> {
     /// Get the texture of the face

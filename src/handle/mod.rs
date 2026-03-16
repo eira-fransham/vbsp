@@ -14,8 +14,6 @@ use glam::Vec3;
 use std::fmt::{Debug, Formatter};
 use std::ops::Deref;
 
-pub use face::{LightmapDisplacementUvResult, lightmap_displacement_uvs};
-
 /// A handle represents a data structure in the bsp file and the bsp file containing it.
 ///
 /// Keeping a reference of the bsp file with the data is required since a lot of data types
