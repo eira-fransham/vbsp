@@ -1,5 +1,10 @@
+use std::ops::Deref;
+
 use binrw::BinRead;
+use glam::{U8Vec3, Vec3};
 use image::Rgb;
+
+use crate::Leaf;
 
 #[derive(BinRead, Debug, Default, Clone, Copy)]
 pub struct ColorRGBExp32 {
@@ -21,7 +26,93 @@ impl ColorRGBExp32 {
     }
 }
 
+const NUM_CUBE_SAMPLES: usize = 6;
+
 #[derive(BinRead, Debug, Default, Clone, Copy)]
 pub struct CompressedLightCube {
-    pub color: [ColorRGBExp32; 6],
+    pub color: [ColorRGBExp32; NUM_CUBE_SAMPLES],
+}
+
+#[derive(BinRead, Debug, Default, Clone, Copy)]
+pub struct AmbientLighting {
+    pub data: CompressedLightCube,
+    #[br(map = |vals: [u8; 3]| vals.into())]
+    pub position: U8Vec3,
+}
+
+// TODO: Compress
+pub struct AmbientVoxelGridBuilder {
+    samples: Vec<Option<[Rgb<f32>; 6]>>,
+}
+
+impl Default for AmbientVoxelGridBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+const SIZE: usize = u8::MAX as usize;
+
+impl AmbientVoxelGridBuilder {
+    pub fn new() -> Self {
+        Self {
+            samples: Vec::with_capacity(SIZE.pow(3)),
+        }
+    }
+
+    pub fn set(&mut self, coords: U8Vec3, value: CompressedLightCube) {
+        let idx = coords.z as usize * SIZE.pow(2) + coords.y as usize * SIZE + coords.x as usize;
+
+        self.samples[idx] = Some(value.color.map(|c| c.to_rgb32f()));
+    }
+
+    pub fn finish(self) -> AmbientVoxelGrid {
+        let mut last_cube = None;
+
+        let samples = self
+            .samples
+            .into_iter()
+            .flat_map(|cube| {
+                // TODO: Should "look forward" too
+                let cube = cube.or(last_cube).unwrap_or([Rgb([0.; 3]); 6]);
+                last_cube = Some(cube);
+                cube.into_iter().flat_map(|color| color.0)
+            })
+            .collect();
+
+        AmbientVoxelGrid { samples }
+    }
+}
+
+pub struct AmbientVoxelGrid {
+    pub samples: Vec<f32>,
+}
+
+impl AmbientLighting {
+    pub fn fraction(&self) -> Vec3 {
+        self.position.as_vec3() / Vec3::splat(u8::MAX as f32)
+    }
+
+    pub fn position(&self, bounds: Vec3) -> Vec3 {
+        bounds * self.fraction()
+    }
+}
+
+#[derive(BinRead, Debug, Default, Clone, Copy)]
+pub struct LeafAmbientIndex {
+    pub count: u16,
+    pub start: u16,
+}
+
+pub struct LeafWithAmbientIndex<'a> {
+    pub leaf: &'a Leaf,
+    pub ambient_index: &'a LeafAmbientIndex,
+}
+
+impl Deref for LeafWithAmbientIndex<'_> {
+    type Target = Leaf;
+
+    fn deref(&self) -> &Self::Target {
+        self.leaf
+    }
 }

@@ -6,10 +6,13 @@ mod reader;
 
 use crate::bspfile::LumpType;
 pub use crate::data::TextureFlags;
-use crate::data::lighting::ColorRGBExp32;
+use crate::data::lighting::{
+    AmbientLighting, ColorRGBExp32, LeafAmbientIndex, LeafWithAmbientIndex,
+};
 pub use crate::data::*;
 use crate::error::ValidationError;
-pub use crate::handle::Handle;
+use crate::handle::HandleGeneric;
+pub use crate::handle::{Handle, LightmapDisplacementUvResult, lightmap_displacement_uvs};
 use binrw::io::Cursor;
 use binrw::{BinRead, BinReaderExt};
 use bspfile::BspFile;
@@ -23,7 +26,7 @@ use qbsp::mesh::lightmap::{
 };
 use reader::LumpReader;
 use std::cmp::min;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io::Read;
 use tracing::warn;
 pub use vbsp_common::{AsPropPlacement, deserialize_bool};
@@ -57,7 +60,10 @@ pub struct Bsp {
     pub faces: Faces,
     pub original_faces: Faces,
     pub vis_data: VisData,
-    pub lighting: Option<Vec<ColorRGBExp32>>,
+    pub lightmap_data: Vec<ColorRGBExp32>,
+    pub ambient_lighting_indices: Vec<LeafAmbientIndex>,
+    pub ambient_lighting_data: Vec<AmbientLighting>,
+    pub displacement_lightmap_sample_positions: BTreeMap<usize, DisplacementSamplePosition>,
     pub displacements: Vec<DisplacementInfo>,
     pub displacement_vertices: Vec<DisplacementVertex>,
     pub displacement_triangles: Vec<DisplacementTriangle>,
@@ -109,7 +115,7 @@ impl Bsp {
                 nodes_v0.into_iter().map(Into::into).collect()
             }
         };
-        let leaves = bsp_file.lump_reader(LumpType::Leaves)?.read_args()?;
+        let leaves = bsp_file.lump_reader(LumpType::Leaves)?.read_lump_args()?;
         let leaf_faces = bsp_file
             .lump_reader(LumpType::LeafFaces)?
             .read_vec(|r| r.read())?;
@@ -135,9 +141,36 @@ impl Bsp {
             .lump_reader(LumpType::SurfaceEdges)?
             .read_vec(|r| r.read())?;
 
-        let mut face_lump = bsp_file.lump_reader(LumpType::Faces)?;
+        let has_hdr_lighting = {
+            let lump = bsp_file.get_lump_entry(LumpType::LightingHdr);
+            lump.offset != 0 && lump.length != 0
+        };
+
+        let mut ambient_lighting_lump = if has_hdr_lighting {
+            bsp_file.lump_reader(LumpType::LeafAmbientLightingHdr)?
+        } else {
+            bsp_file.lump_reader(LumpType::LeafAmbientLighting)?
+        };
+
+        let ambient_lighting_data = ambient_lighting_lump
+            .read_vec(|r| r.read())
+            .unwrap_or_default();
+
+        let mut ambient_lighting_index_lump = if has_hdr_lighting {
+            bsp_file.lump_reader(LumpType::LeafAmbientIndexHdr)?
+        } else {
+            bsp_file.lump_reader(LumpType::LeafAmbientIndex)?
+        };
+
+        let ambient_lighting_indices = ambient_lighting_index_lump.read_vec(|r| r.read())?;
+
+        let mut face_lump = if has_hdr_lighting {
+            bsp_file.lump_reader(LumpType::FacesHdr)?
+        } else {
+            bsp_file.lump_reader(LumpType::Faces)?
+        };
         let face_lump_version = face_lump.args().version;
-        let faces = face_lump.read_args()?;
+        let faces = face_lump.read_lump_args()?;
 
         let mut original_faces_lump = bsp_file.lump_reader(LumpType::OriginalFaces)?;
         // Portal Revolution BSPs seem to have a bug where the inner face type is version 2, but only
@@ -148,13 +181,47 @@ impl Bsp {
         };
         let original_faces = original_faces_lump.read_with_args(original_faces_lump_args)?;
 
-        let lighting_rgb32f = bsp_file
-            .lump_reader(LumpType::LightingHdr)
-            .ok()
-            .filter(|b| b.args().length > 0)
-            .or_else(|| bsp_file.lump_reader(LumpType::Lighting).ok())
-            .map(|mut lump| lump.read_vec(|r| r.read()))
-            .transpose()?;
+        let lighting = {
+            let lump = if has_hdr_lighting {
+                bsp_file.lump_reader(LumpType::LightingHdr)
+            } else {
+                bsp_file.lump_reader(LumpType::Lighting)
+            };
+
+            lump?.read_vec(|r| r.read())?
+        };
+
+        let displacement_lightmap_sample_positions = 'read: {
+            let Ok(mut reader) =
+                bsp_file.lump_reader(LumpType::DisplacementLightMapSamplePositions)
+            else {
+                break 'read BTreeMap::new();
+            };
+            let mut sample_positions = BTreeMap::new();
+            let mut offset = 0;
+            loop {
+                match reader.read_with_args::<RawDisplacementSamplePosition>(offset) {
+                    Ok(pos) => {
+                        sample_positions.insert(
+                            offset,
+                            DisplacementSamplePosition {
+                                index: pos.index,
+                                coords: pos.coords,
+                            },
+                        );
+                        offset = pos.offset;
+                    }
+                    Err(BspError::Io(std_err))
+                        if std_err.kind() == std::io::ErrorKind::UnexpectedEof =>
+                    {
+                        break;
+                    }
+                    Err(e) => return Err(e),
+                }
+            }
+
+            sample_positions
+        };
 
         let vis_data = bsp_file.lump_reader(LumpType::Visibility)?.read_visdata()?;
         let displacements = bsp_file
@@ -191,7 +258,9 @@ impl Bsp {
             leaves,
             leaf_faces,
             leaf_brushes,
-            lighting: lighting_rgb32f,
+            ambient_lighting_indices,
+            ambient_lighting_data,
+            lightmap_data: lighting,
             models,
             brushes,
             brush_sides,
@@ -201,6 +270,7 @@ impl Bsp {
             faces,
             original_faces,
             vis_data,
+            displacement_lightmap_sample_positions,
             displacements,
             displacement_vertices,
             displacement_triangles,
@@ -213,12 +283,11 @@ impl Bsp {
         Ok(bsp)
     }
 
-    pub fn lighting_rgb32f(&self) -> Option<Vec<f32>> {
-        self.lighting.as_ref().map(|vec| {
-            vec.into_iter()
-                .flat_map(|pixel| pixel.to_rgb32f().0)
-                .collect()
-        })
+    pub fn lighting_rgb32f(&self) -> Vec<f32> {
+        self.lightmap_data
+            .iter()
+            .flat_map(|pixel| pixel.to_rgb32f().0)
+            .collect()
     }
 
     /// Packs every face's lightmap together onto a single atlas for GPU rendering.
@@ -226,9 +295,7 @@ impl Bsp {
         &self,
         mut packer: P,
     ) -> Result<LightmapAtlasOutput<P>, ComputeLightmapAtlasError> {
-        let Some(lighting) = self.lighting_rgb32f() else {
-            return Err(ComputeLightmapAtlasError::NoLightmaps);
-        };
+        let lighting = self.lighting_rgb32f();
 
         let settings = packer.settings();
 
@@ -244,6 +311,17 @@ impl Bsp {
                 lightmap_offsets.insert(face_idx as u32, Vec2::ZERO);
                 continue;
             }
+
+            // let lighting_owned;
+
+            // if let Some(disp) = face.displacement() {
+            //     lighting_owned = self
+            //         .displacement_lightmap_sample_positions
+            //         .range(disp.lightmap_sample_position_start as usize..)
+            //         .take((face.light_map_texture_size.as_usizevec2() + 1).element_product())
+            //         .map(|i| self.displacement_triangles)
+            //         .collect::<Vec<_>>();
+            // }
 
             let lm_info = LightmapInfo {
                 lightmap_size: face.light_map_texture_size + 1,
@@ -276,8 +354,17 @@ impl Bsp {
         })
     }
 
-    pub fn leaf(&self, n: usize) -> Option<Handle<'_, Leaf>> {
-        self.leaves.get(n).map(|leaf| Handle::new(self, leaf))
+    pub fn leaf(&self, n: usize) -> Option<HandleGeneric<'_, LeafWithAmbientIndex<'_>>> {
+        let leaf = self.leaves.get(n)?;
+        let ambient_index = self.ambient_lighting_indices.get(n)?;
+
+        Some(HandleGeneric {
+            bsp: self,
+            data: LeafWithAmbientIndex {
+                leaf,
+                ambient_index,
+            },
+        })
     }
 
     pub fn plane(&self, n: usize) -> Option<Handle<'_, Plane>> {
@@ -338,7 +425,7 @@ impl Bsp {
             let next = if dot < plane.dist { back } else { front };
 
             if next < 0 {
-                return self.leaf((!next) as usize).unwrap();
+                return self.leaf((!next) as usize).unwrap().into();
             } else {
                 current = self.node(next as usize).unwrap();
             }

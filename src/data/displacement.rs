@@ -2,11 +2,70 @@ use crate::data::try_read_enum;
 use crate::error::InvalidNeighbourError;
 use binrw::{BinRead, BinResult, Endian};
 use bitflags::bitflags;
-use glam::Vec3;
+use glam::{U8Vec3, Vec3};
+use itertools::Itertools;
 use num_enum::TryFromPrimitive;
 use std::fmt::Debug;
 use std::io::{Read, Seek, SeekFrom};
 use std::mem::{align_of, size_of};
+
+#[derive(Debug, Clone)]
+pub struct RawDisplacementSamplePosition {
+    pub offset: usize,
+    pub index: u16,
+    pub coords: U8Vec3,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct DisplacementSamplePosition {
+    pub index: u16,
+    pub coords: U8Vec3,
+}
+
+impl BinRead for RawDisplacementSamplePosition {
+    type Args<'a> = usize;
+
+    fn read_options<R: Read + Seek>(
+        reader: &mut R,
+        _: Endian,
+        offset: Self::Args<'_>,
+    ) -> BinResult<Self> {
+        let unexpected_eof = std::io::Error::from(std::io::ErrorKind::UnexpectedEof).into();
+
+        let mut bytes = reader.bytes();
+
+        let Some(index_first_byte) = bytes.next() else {
+            return Err(unexpected_eof);
+        };
+        let index_first_byte = index_first_byte?;
+
+        let mut offset = offset + 4;
+        let index = if index_first_byte == 255 {
+            offset += 1;
+
+            let Some(index_second_byte) = bytes.next() else {
+                return Err(unexpected_eof);
+            };
+            let index_second_byte = index_second_byte?;
+
+            index_second_byte as u16 + 255
+        } else {
+            index_first_byte as u16
+        };
+
+        let Some([x, y, z]) = bytes.next_array() else {
+            return Err(unexpected_eof);
+        };
+
+        let coords = [x?, y?, z?].into();
+
+        Ok(RawDisplacementSamplePosition {
+            offset,
+            index,
+            coords,
+        })
+    }
+}
 
 #[derive(Debug, Clone, BinRead)]
 pub struct DisplacementInfo {

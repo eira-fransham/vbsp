@@ -1,7 +1,7 @@
 use super::Handle;
 use crate::data::*;
-use glam::{Vec2, Vec3};
-use itertools::Either;
+use glam::{IVec2, Vec2, Vec3, Vec3Swizzles};
+use itertools::{Either, Itertools};
 
 impl<'a> Handle<'a, FaceV2> {
     /// Get the texture of the face
@@ -17,7 +17,7 @@ impl<'a> Handle<'a, FaceV2> {
     }
 
     /// Get all vertices making up the face
-    pub fn vertices(&self) -> impl Iterator<Item = &'a Vertex> + 'a {
+    pub fn vertices(&self) -> impl Iterator<Item = &'a Vertex> + use<'a> {
         let bsp = self.bsp;
         self.vertex_indices()
             .map(move |vert_index| bsp.vertices.get(vert_index as usize).unwrap())
@@ -26,7 +26,7 @@ impl<'a> Handle<'a, FaceV2> {
     /// Get the vertex indexes of all vertices making up the face
     ///
     /// The indexes index into the `vertices` field of the bsp file
-    pub fn vertex_indices(&self) -> impl ExactSizeIterator<Item = u16> + 'a {
+    pub fn vertex_indices(&self) -> impl ExactSizeIterator<Item = u16> + use<'a> {
         let bsp = self.bsp;
         (self.data.first_edge..(self.data.first_edge + self.data.num_edges as i32))
             .map(move |surface_edge| bsp.surface_edges.get(surface_edge as usize).unwrap())
@@ -42,7 +42,7 @@ impl<'a> Handle<'a, FaceV2> {
             })
     }
 
-    pub fn triangulate_brush_indices(&self) -> impl Iterator<Item = usize> {
+    pub fn triangulate_brush_indices(&self) -> impl Iterator<Item = usize> + use<'a> {
         let mut indices = 0..self.vertex_indices().len();
 
         let a = indices.next().expect("face with <3 points");
@@ -55,7 +55,7 @@ impl<'a> Handle<'a, FaceV2> {
         })
     }
 
-    pub fn triangulate_indices(&self) -> impl Iterator<Item = usize> + use<'a, '_> {
+    pub fn triangulate_indices(&self) -> impl Iterator<Item = usize> + use<'a> {
         self.displacement()
             .map(|displacement| Either::Left(displacement.triangulated_indices()))
             .unwrap_or_else(|| Either::Right(self.triangulate_brush_indices()))
@@ -82,12 +82,6 @@ impl<'a> Handle<'a, FaceV2> {
         self.vertex_positions().map(|pos| self.texture().uv(pos))
     }
 
-    pub fn lightmap_uvs(&self) -> impl Iterator<Item = Vec2> {
-        self.vertex_positions()
-            .map(|pos| self.texture().lightmap_uv(pos))
-            .map(|uv| uv - self.light_map_texture_min.as_vec2())
-    }
-
     /// Triangulate the face
     ///
     /// Triangulation only works for faces that can be turned into a triangle fan trivially
@@ -105,18 +99,45 @@ impl<'a> Handle<'a, FaceV2> {
     }
 
     pub fn displacement(&self) -> Option<Handle<'a, DisplacementInfo>> {
-        self.bsp.displacement(self.displacement_info as usize)
+        self.bsp
+            .displacement(self.displacement_info.try_into().ok()?)
+    }
+
+    pub fn lightmap_uvs(&self) -> impl Iterator<Item = Vec2> + use<'a> {
+        self.displacement()
+            .map(move |displacement| {
+                Either::Left(
+                    displacement
+                        .lightmap_uvs()
+                        .map(|uv| uv * self.light_map_texture_size.as_vec2()),
+                )
+            })
+            .unwrap_or_else(move || {
+                Either::Right(
+                    self.vertices()
+                        .map(|v| v.position)
+                        .map(|v| self.texture().lightmap_transforms.project(v))
+                        .map(|uv| uv - self.light_map_texture_min.as_vec2()),
+                )
+            })
+            // TODO: This collect shouldn't be necessary
+            .collect::<Vec<_>>()
+            .into_iter()
     }
 
     /// Get the vertex positions for the face
-    pub fn vertex_positions(&self) -> impl Iterator<Item = Vec3> + 'a + '_ {
+    pub fn vertex_positions(&self) -> impl Iterator<Item = Vec3> + 'a {
         self.displacement()
             .map(|displacement| displacement.displaced_vertices())
             .map(Either::Left)
             .unwrap_or_else(|| Either::Right(self.vertices().map(|v| v.position)))
     }
 
+    pub fn plane(&self) -> Handle<'a, Plane> {
+        self.bsp.plane(self.plane_num as usize).unwrap()
+    }
+
     pub fn normal(&self) -> Vec3 {
-        self.bsp.plane(self.plane_num as usize).unwrap().normal
+        self.plane().normal
     }
 }

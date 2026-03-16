@@ -83,14 +83,11 @@ impl<R: BinReaderExt + Read> LumpReader<R> {
         Ok(result)
     }
 
-    pub fn read_args<'a, T: BinRead<Args<'a> = LumpArgs> + Debug>(&mut self) -> BspResult<T> {
+    pub fn read_lump_args<'a, T: BinRead<Args<'a> = LumpArgs> + Debug>(&mut self) -> BspResult<T> {
         self.read_with_args(self.args())
     }
 
-    pub fn read_with_args<'a, T: BinRead<Args<'a> = LumpArgs> + Debug>(
-        &mut self,
-        args: LumpArgs,
-    ) -> BspResult<T> {
+    pub fn read_with_args<T: BinRead + Debug>(&mut self, args: T::Args<'_>) -> BspResult<T> {
         let result = T::read_options(&mut self.inner, binrw::Endian::Little, args)?;
         Ok(result)
     }

@@ -1,7 +1,7 @@
 use super::Handle;
 use crate::data::*;
 use arrayvec::ArrayVec;
-use glam::Vec3;
+use glam::{Vec2, Vec3};
 
 impl<'a> Handle<'a, DisplacementInfo> {
     pub fn edge_neighbours(
@@ -65,6 +65,16 @@ impl<'a> Handle<'a, DisplacementInfo> {
         corner_positions
     }
 
+    pub fn lightmap_uvs(&self) -> impl Iterator<Item = Vec2> + use<'a> {
+        let steps = 2usize.pow(self.power as u32) + 1;
+
+        let step_scale = 1.0 / (steps as f32 - 1.0);
+
+        (0..steps)
+            .flat_map(move |x| (0..steps).map(move |y| (y, x)))
+            .map(move |(x, y)| Vec2::new(x as f32, y as f32) * step_scale)
+    }
+
     pub fn subdivided_face(&self) -> impl Iterator<Item = Vec3> + use<'a> {
         let steps = 2usize.pow(self.power as u32) + 1;
         let corner_positions = self.corner_positions();
@@ -87,9 +97,14 @@ impl<'a> Handle<'a, DisplacementInfo> {
             })
     }
 
+    pub fn raw_vertices(
+        &self,
+    ) -> impl Iterator<Item = (Handle<'a, DisplacementVertex>, Vec3)> + use<'a> {
+        self.displacement_vertices().zip(self.subdivided_face())
+    }
+
     pub fn displaced_vertices(&self) -> impl Iterator<Item = Vec3> + use<'a> {
-        self.displacement_vertices()
-            .zip(self.subdivided_face())
+        self.raw_vertices()
             .map(move |(displacement, base_pos)| base_pos + displacement.displacement())
     }
 

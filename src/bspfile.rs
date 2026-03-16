@@ -21,6 +21,7 @@ impl<'a> BspFile<'a> {
             error => BspError::MalformedData(error),
         })?;
         let mut directories: Directories = cursor.read_le()?;
+
         if header.version == BspVersion::Version21 && directories.is_l4d2_lump_order(data.len()) {
             directories.fixup_lumps();
         }

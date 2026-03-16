@@ -292,8 +292,8 @@ impl TextureCoord {
 
 #[derive(Debug, Clone, BinRead)]
 pub struct PlanarTextureCoords {
-    u: TextureCoord,
-    v: TextureCoord,
+    pub u: TextureCoord,
+    pub v: TextureCoord,
 }
 
 impl PlanarTextureCoords {
@@ -461,7 +461,7 @@ pub struct BrushSide {
     pub bevel: i16,
 }
 
-#[derive(Debug, Clone, BinRead)]
+#[derive(Debug, Clone, BinRead, PartialEq)]
 pub struct Vertex {
     #[br(map = |vals: [f32; 3]| vals.into())]
     pub position: Vec3,
