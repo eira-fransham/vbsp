@@ -104,25 +104,23 @@ impl<'a> Handle<'a, FaceV2> {
     }
 
     pub fn lightmap_uvs(&self) -> impl Iterator<Item = Vec2> + use<'a> {
+        let (lm_transforms, lm_tex_min, lm_tex_size) = (
+            self.texture().lightmap_transforms.clone(),
+            self.light_map_texture_min,
+            self.light_map_texture_size,
+        );
+
         self.displacement()
-            .map(move |displacement| {
-                Either::Left(
-                    displacement
-                        .lightmap_uvs()
-                        .map(|uv| uv * self.light_map_texture_size.as_vec2()),
-                )
-            })
+            .map(move |displacement| Either::Left(displacement.lightmap_uvs()))
             .unwrap_or_else(move || {
                 Either::Right(
                     self.vertices()
-                        .map(|v| v.position)
-                        .map(|v| self.texture().lightmap_transforms.project(v))
-                        .map(|uv| uv - self.light_map_texture_min.as_vec2()),
+                        .map(move |v| v.position)
+                        .map(move |v| lm_transforms.project(v))
+                        .map(move |uv| uv - lm_tex_min.as_vec2())
+                        .map(move |uv| uv / lm_tex_size.as_vec2()),
                 )
             })
-            // TODO: This collect shouldn't be necessary
-            .collect::<Vec<_>>()
-            .into_iter()
     }
 
     /// Get the vertex positions for the face

@@ -2,7 +2,7 @@ use std::ops::Deref;
 
 use binrw::BinRead;
 use glam::{U8Vec3, Vec3};
-use image::Rgb;
+use image::{Rgb, Rgba};
 
 use crate::Leaf;
 
@@ -23,6 +23,26 @@ impl ColorRGBExp32 {
         let scale = 2f32.powi(self.exponent as i32);
 
         [self.r, self.g, self.b].map(|v| scale * v as f32).into()
+    }
+
+    pub fn to_rgbm32f(&self) -> Rgba<u8> {
+        let exp = self.exponent + 8;
+
+        if exp < 0 {
+            let Ok(scale): Result<u8, _> = 2i32.pow((-exp).try_into().unwrap()).try_into() else {
+                return [0, 0, 0, 0].into();
+            };
+
+            [self.r / scale, self.g / scale, self.b / scale, 1]
+        } else {
+            let scale = 2i32
+                .pow(exp.try_into().unwrap())
+                .try_into()
+                .unwrap_or(u8::MAX);
+
+            [self.r, self.g, self.b, scale]
+        }
+        .into()
     }
 }
 

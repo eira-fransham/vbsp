@@ -17,8 +17,8 @@ use binrw::io::Cursor;
 use binrw::{BinRead, BinReaderExt};
 use bspfile::BspFile;
 pub use error::{BspError, StringError};
-use glam::{Vec2, Vec3};
-use image::Rgb;
+use glam::Vec3;
+use image::{DynamicImage, ImageBuffer, Pixel, Rgb};
 use lzma_rs::decompress::{Options, UnpackedSize};
 use qbsp::data::LightmapStyle;
 use qbsp::mesh::lightmap::{
@@ -29,6 +29,9 @@ use std::cmp::min;
 use std::collections::{BTreeMap, HashMap};
 use std::io::Read;
 use tracing::warn;
+
+pub use image::math::Rect;
+
 pub use vbsp_common::{AsPropPlacement, deserialize_bool};
 
 pub use qbsp::data::{BspLighting, lighting::RgbLighting};
@@ -74,7 +77,7 @@ pub struct Bsp {
 }
 
 pub struct LightmapAtlasOutput<P: LightmapPacker> {
-    pub offsets: HashMap<u32, Vec2>,
+    pub rects: HashMap<u32, Rect>,
     pub data: P::Output,
 }
 
@@ -290,16 +293,19 @@ impl Bsp {
             .collect()
     }
 
-    /// Packs every face's lightmap together onto a single atlas for GPU rendering.
-    pub fn compute_lightmap_atlas<P: LightmapPacker>(
+    fn compute_lightmap_atlas_internal<P, Px>(
         &self,
         mut packer: P,
-    ) -> Result<LightmapAtlasOutput<P>, ComputeLightmapAtlasError> {
-        let lighting = self.lighting_rgb32f();
-
+        lighting_buffer: &[Px::Subpixel],
+    ) -> Result<LightmapAtlasOutput<P>, ComputeLightmapAtlasError>
+    where
+        P: LightmapPacker,
+        Px: Pixel,
+        DynamicImage: From<ImageBuffer<Px, Vec<Px::Subpixel>>>,
+    {
         let settings = packer.settings();
 
-        let mut lightmap_offsets: HashMap<u32, Vec2> = HashMap::new();
+        let mut lightmap_rects: HashMap<u32, Rect> = HashMap::new();
 
         for (face_idx, face) in self.faces().enumerate() {
             let Ok(face_idx_32) = face_idx.try_into() else {
@@ -308,20 +314,17 @@ impl Bsp {
             };
 
             if face.light_map_texture_size.element_product() == 0 {
-                lightmap_offsets.insert(face_idx as u32, Vec2::ZERO);
+                lightmap_rects.insert(
+                    face_idx as u32,
+                    Rect {
+                        x: 0,
+                        y: 0,
+                        width: 0,
+                        height: 0,
+                    },
+                );
                 continue;
             }
-
-            // let lighting_owned;
-
-            // if let Some(disp) = face.displacement() {
-            //     lighting_owned = self
-            //         .displacement_lightmap_sample_positions
-            //         .range(disp.lightmap_sample_position_start as usize..)
-            //         .take((face.light_map_texture_size.as_usizevec2() + 1).element_product())
-            //         .map(|i| self.displacement_triangles)
-            //         .collect::<Vec<_>>();
-            // }
 
             let lm_info = LightmapInfo {
                 lightmap_size: face.light_map_texture_size + 1,
@@ -334,24 +337,41 @@ impl Bsp {
 
                 lightmap_styles: face.styles.map(LightmapStyle),
                 face_idx,
-                lighting_buffer: &lighting,
+                lighting_buffer,
             };
 
-            let input = packer.read_from_face::<Rgb<f32>>(view);
+            let input = packer.read_from_face::<Px>(view);
 
-            let frame = packer.pack::<Rgb<f32>>(view, input)?;
+            let frame = packer.pack::<Px>(view, input)?;
 
-            let offset = (frame.min + settings.extrusion).as_vec2();
+            let offset = frame.min + settings.extrusion;
 
-            lightmap_offsets.insert(face_idx_32, offset);
+            lightmap_rects.insert(
+                face_idx_32,
+                Rect {
+                    x: offset.x,
+                    y: offset.y,
+                    width: face.light_map_texture_size.x,
+                    height: face.light_map_texture_size.y,
+                },
+            );
         }
 
         let atlas = packer.export();
 
         Ok(LightmapAtlasOutput {
-            offsets: lightmap_offsets,
+            rects: lightmap_rects,
             data: atlas,
         })
+    }
+
+    /// Packs every face's lightmap together onto a single atlas for GPU rendering.
+    pub fn compute_lightmap_atlas_rgb32f<P: LightmapPacker>(
+        &self,
+        packer: P,
+    ) -> Result<LightmapAtlasOutput<P>, ComputeLightmapAtlasError> {
+        let lighting = self.lighting_rgb32f();
+        self.compute_lightmap_atlas_internal::<P, Rgb<f32>>(packer, &lighting)
     }
 
     pub fn leaf(&self, n: usize) -> Option<HandleGeneric<'_, LeafWithAmbientIndex<'_>>> {
