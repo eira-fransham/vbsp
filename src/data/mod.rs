@@ -23,7 +23,6 @@ use glam::Vec2;
 use glam::Vec3;
 use num_enum::{TryFromPrimitive, TryFromPrimitiveError};
 use std::borrow::Cow;
-use std::cmp::min;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::io::{Cursor, Read, Seek};

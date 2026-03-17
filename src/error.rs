@@ -35,7 +35,7 @@ pub enum BspError {
     String(#[from] StringError),
     #[error("Malformed field found while parsing: {0:#}")]
     MalformedData(binrw::Error),
-    #[error("bsp file is well-formed but contains invalid data")]
+    #[error("bsp file is well-formed but contains invalid data ({0:#})")]
     Validation(#[from] ValidationError),
     #[error(transparent)]
     LumpVersion(UnsupportedLumpVersion),

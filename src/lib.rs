@@ -102,7 +102,10 @@ impl Bsp {
             .read_vec(|r| r.read())?;
         let texture_string_data = String::from_utf8(
             bsp_file
-                .get_lump(bsp_file.get_lump_entry(LumpType::TextureDataStringData))?
+                .get_lump(
+                    bsp_file.get_lump_entry(LumpType::TextureDataStringData),
+                    LumpType::TextureDataStringData,
+                )?
                 .into_owned(),
         )
         .map_err(|e| BspError::String(StringError::NonUTF8(e.utf8_error())))?;
@@ -146,29 +149,39 @@ impl Bsp {
 
         let has_hdr_lighting = {
             let lump = bsp_file.get_lump_entry(LumpType::LightingHdr);
-            lump.offset != 0 && lump.length != 0
+            lump.length != 0
         };
 
-        let mut ambient_lighting_lump = if has_hdr_lighting {
-            bsp_file.lump_reader(LumpType::LeafAmbientLightingHdr)?
+        let ambient_lighting_lump = if has_hdr_lighting {
+            bsp_file
+                .lump_reader(LumpType::LeafAmbientLightingHdr)
+                .or_else(|_| bsp_file.lump_reader(LumpType::LeafAmbientLighting))
+                .ok()
         } else {
-            bsp_file.lump_reader(LumpType::LeafAmbientLighting)?
+            bsp_file.lump_reader(LumpType::LeafAmbientLighting).ok()
         };
 
         let ambient_lighting_data = ambient_lighting_lump
-            .read_vec(|r| r.read())
+            .and_then(|mut lump| lump.read_vec(|r| r.read()).ok())
             .unwrap_or_default();
 
-        let mut ambient_lighting_index_lump = if has_hdr_lighting {
-            bsp_file.lump_reader(LumpType::LeafAmbientIndexHdr)?
+        let ambient_lighting_index_lump = if has_hdr_lighting {
+            bsp_file
+                .lump_reader(LumpType::LeafAmbientIndexHdr)
+                .or_else(|_| bsp_file.lump_reader(LumpType::LeafAmbientIndex))
+                .ok()
         } else {
-            bsp_file.lump_reader(LumpType::LeafAmbientIndex)?
+            bsp_file.lump_reader(LumpType::LeafAmbientIndex).ok()
         };
 
-        let ambient_lighting_indices = ambient_lighting_index_lump.read_vec(|r| r.read())?;
+        let ambient_lighting_indices = ambient_lighting_index_lump
+            .and_then(|mut lump| lump.read_vec(|r| r.read()).ok())
+            .unwrap_or_default();
 
         let mut face_lump = if has_hdr_lighting {
-            bsp_file.lump_reader(LumpType::FacesHdr)?
+            bsp_file
+                .lump_reader(LumpType::FacesHdr)
+                .or_else(|_| bsp_file.lump_reader(LumpType::Faces))?
         } else {
             bsp_file.lump_reader(LumpType::Faces)?
         };
@@ -191,7 +204,9 @@ impl Bsp {
                 bsp_file.lump_reader(LumpType::Lighting)
             };
 
-            lump?.read_vec(|r| r.read())?
+            lump.ok()
+                .and_then(|mut lump| lump.read_vec(|r| r.read()).ok())
+                .unwrap_or_default()
         };
 
         let displacement_lightmap_sample_positions = 'read: {
