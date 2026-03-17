@@ -11,6 +11,8 @@ use crate::lighting::LeafWithAmbientIndex;
 use ahash::RandomState;
 use glam::Vec2;
 use glam::Vec3;
+use itertools::Either;
+use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::ops::Deref;
 
@@ -56,7 +58,7 @@ impl<'a, T> Handle<'a, T> {
 
 impl<'a> Handle<'a, Model> {
     /// Get all faces that make up the model
-    pub fn faces(&self) -> impl Iterator<Item = Handle<'a, FaceV2>> {
+    pub fn faces(&self) -> impl Iterator<Item = Handle<'a, Face>> {
         let start = self.first_face as usize;
         let end = start + self.face_count as usize;
         let bsp = self.bsp;
@@ -66,8 +68,17 @@ impl<'a> Handle<'a, Model> {
             .map(move |face| Handle::new(bsp, face))
     }
 
+    pub fn root(&self) -> Option<Handle<'a, Node>> {
+        let root_idx: usize = self.head_node.try_into().ok()?;
+        self.bsp.node(root_idx)
+    }
+
+    pub fn leaves(&self) -> impl Iterator<Item = Handle<'a, Leaf>> {
+        self.root().into_iter().flat_map(|node| node.leaves())
+    }
+
     /// Get all faces that make up the model
-    pub fn faces_with_id(&self) -> impl Iterator<Item = (i32, Handle<'a, FaceV2>)> {
+    pub fn faces_with_id(&self) -> impl Iterator<Item = (i32, Handle<'a, Face>)> {
         let start = self.first_face;
         let end = start + self.face_count;
 
@@ -103,10 +114,47 @@ impl<'a> HandleGeneric<'a, LeafWithAmbientIndex<'a>> {
     }
 }
 
-impl Handle<'_, Node> {
+impl<'a> Handle<'a, Node> {
     /// Get the plane splitting this node
-    pub fn plane(&self) -> Handle<'_, Plane> {
+    pub fn plane(&self) -> Handle<'a, Plane> {
         self.bsp.plane(self.plane_index as _).unwrap()
+    }
+
+    pub fn children(&self) -> Option<[Either<Handle<'a, Node>, Handle<'a, Leaf>>; 2]> {
+        let [left, right] = self.children.map(|i| {
+            if i < 0 {
+                self.bsp
+                    .leaf((!i).try_into().ok()?)
+                    .map(Into::into)
+                    .map(Either::Right)
+            } else {
+                self.bsp.node(i.try_into().ok()?).map(Either::Left)
+            }
+        });
+
+        Some([left?, right?])
+    }
+
+    pub fn leaves(&self) -> impl Iterator<Item = Handle<'a, Leaf>> + use<'a> {
+        Box::new(
+            self.children()
+                .into_iter()
+                .flatten()
+                .flat_map(|child| match child {
+                    Either::Left(node) => Either::Left(node.leaves()),
+                    Either::Right(leaf) => Either::Right(std::iter::once(leaf)),
+                }),
+        ) as Box<dyn Iterator<Item = Handle<'a, Leaf>>>
+    }
+
+    pub fn vis_clusters(&self) -> HashMap<i32, Vec<Handle<'a, Leaf>>> {
+        let mut out = HashMap::<i32, Vec<Handle<'a, Leaf>>>::new();
+
+        for leaf in self.leaves() {
+            out.entry(leaf.cluster).or_default().push(leaf);
+        }
+
+        out
     }
 }
 
@@ -130,7 +178,7 @@ where
                         if leaf.cluster == cluster {
                             true
                         } else if leaf.cluster > 0 {
-                            visible_clusters[leaf.cluster as u64]
+                            visible_clusters[leaf.cluster as usize]
                         } else {
                             false
                         }
@@ -141,13 +189,20 @@ where
     }
 
     /// Get all faces in this leaf
-    pub fn faces(&self) -> impl Iterator<Item = Handle<'a, FaceV2>> {
-        let start = self.first_leaf_face as usize;
-        let end = start + self.leaf_face_count as usize;
+    pub fn faces(&self) -> impl Iterator<Item = Handle<'a, Face>> + use<'a, L> {
+        self.faces_with_id().map(|(_, face)| face)
+    }
+
+    /// Get all faces that make up the model
+    pub fn faces_with_id(&self) -> impl Iterator<Item = (u32, Handle<'a, Face>)> + use<'a, L> {
+        let start = self.first_leaf_face;
+        let end = start + self.leaf_face_count;
         let bsp = self.bsp;
-        bsp.leaf_faces[start..end]
+        bsp.leaf_faces[start as usize..end as usize]
             .iter()
-            .filter_map(move |leaf_face| bsp.face(leaf_face.face as usize))
+            .filter_map(move |leaf_face| {
+                Some((leaf_face.face as u32, bsp.face(leaf_face.face as usize)?))
+            })
     }
 }
 

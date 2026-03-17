@@ -3,7 +3,7 @@ use crate::data::*;
 use glam::{Vec2, Vec3};
 use itertools::Either;
 
-impl<'a> Handle<'a, FaceV2> {
+impl<'a> Handle<'a, Face> {
     /// Get the texture of the face
     pub fn texture(&self) -> Handle<'a, TextureInfo> {
         self.bsp

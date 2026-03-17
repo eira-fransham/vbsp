@@ -391,7 +391,7 @@ impl Bsp {
         self.planes.get(n).map(|plane| Handle::new(self, plane))
     }
 
-    pub fn face(&self, n: usize) -> Option<Handle<'_, FaceV2>> {
+    pub fn face(&self, n: usize) -> Option<Handle<'_, Face>> {
         self.faces.get(n).map(|face| Handle::new(self, face))
     }
 
@@ -433,7 +433,7 @@ impl Bsp {
     }
 
     /// Find a leaf for a specific position
-    pub fn leaf_at(&self, point: Vec3) -> Handle<'_, Leaf> {
+    pub fn leaf_at(&self, point: Vec3) -> Option<Handle<'_, Leaf>> {
         let mut current = self.root_node();
 
         loop {
@@ -445,9 +445,9 @@ impl Bsp {
             let next = if dot < plane.dist { back } else { front };
 
             if next < 0 {
-                return self.leaf((!next) as usize).unwrap().into();
+                return Some(self.leaf((!next) as usize)?.into());
             } else {
-                current = self.node(next as usize).unwrap();
+                current = self.node(next as usize)?;
             }
         }
     }
@@ -461,12 +461,12 @@ impl Bsp {
     }
 
     /// Get all faces stored in the bsp
-    pub fn faces(&self) -> impl Iterator<Item = Handle<'_, FaceV2>> {
+    pub fn faces(&self) -> impl Iterator<Item = Handle<'_, Face>> {
         self.faces.iter().map(move |face| Handle::new(self, face))
     }
 
     /// Get all original faces stored in the bsp
-    pub fn original_faces(&self) -> impl Iterator<Item = Handle<'_, FaceV2>> {
+    pub fn original_faces(&self) -> impl Iterator<Item = Handle<'_, Face>> {
         self.original_faces
             .iter()
             .map(move |face| Handle::new(self, face))

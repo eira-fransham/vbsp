@@ -31,7 +31,7 @@ impl<'a> Handle<'a, DisplacementInfo> {
             .flat_map(|i| self.bsp.displacement_vertex(i as usize))
     }
 
-    pub fn face(&self) -> Option<Handle<'a, FaceV2>> {
+    pub fn face(&self) -> Option<Handle<'a, Face>> {
         self.bsp.face(self.map_face as usize)
     }
 

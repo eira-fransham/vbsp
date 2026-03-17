@@ -15,8 +15,8 @@ use crate::{BspResult, StringError};
 use arrayvec::ArrayString;
 use binrw::error::CustomError;
 use binrw::{BinRead, BinResult, Endian};
+use bit_vec::BitVec;
 use bitflags::bitflags;
-use bv::BitVec;
 use glam::IVec2;
 use glam::UVec2;
 use glam::Vec2;
@@ -555,7 +555,7 @@ impl PackedPrimitiveCount {
 }
 
 #[derive(Debug, Clone, BinRead)]
-pub struct FaceV2 {
+pub struct Face {
     pub plane_num: u32,
     pub side: u8,
     pub on_node: u8,
@@ -581,11 +581,11 @@ static_assertions::const_assert_eq!(size_of::<TextureInfo>(), 72);
 
 #[derive(Debug, Clone)]
 pub struct Faces {
-    pub faces: Vec<FaceV2>,
+    pub faces: Vec<Face>,
 }
 
 impl Deref for Faces {
-    type Target = [FaceV2];
+    type Target = [Face];
 
     fn deref(&self) -> &Self::Target {
         &*self.faces
@@ -603,7 +603,7 @@ impl BinRead for Faces {
         let item_size = match args.version {
             // TODO: Is FaceV0 different?
             0 | 1 => size_of::<FaceV1>(),
-            2 => size_of::<FaceV2>(),
+            2 => size_of::<Face>(),
             version => {
                 return Err(binrw::Error::Custom {
                     err: Box::new(BspError::LumpVersion(
@@ -632,7 +632,7 @@ impl BinRead for Faces {
         for _ in 0..num_entries {
             let face = match args.version {
                 0 | 1 => FaceV1::read_options(reader, endian, ())?.into(),
-                2 => FaceV2::read_options(reader, endian, ())?,
+                2 => Face::read_options(reader, endian, ())?,
                 version => {
                     return Err(binrw::Error::Custom {
                         err: Box::new(BspError::LumpVersion(
@@ -653,7 +653,7 @@ impl BinRead for Faces {
     }
 }
 
-impl From<FaceV1> for FaceV2 {
+impl From<FaceV1> for Face {
     fn from(value: FaceV1) -> Self {
         Self {
             plane_num: value.plane_num as _,
@@ -677,7 +677,7 @@ impl From<FaceV1> for FaceV2 {
     }
 }
 
-impl FaceV2 {
+impl Face {
     pub fn displacement_index(&self) -> Option<i32> {
         (self.displacement_info >= 0).then_some(self.displacement_info)
     }
@@ -694,14 +694,16 @@ pub struct VisData {
 }
 
 impl VisData {
-    pub fn visible_clusters(&self, cluster: i32) -> BitVec<u8> {
+    pub fn visible_clusters(&self, cluster: i32) -> BitVec<u32> {
         let Ok(cluster) = usize::try_from(cluster) else {
             return Default::default();
         };
         let offset = self.pvs_offsets[cluster] as usize;
-        let pvs_buffer = &self.data[offset..];
-        let mut visible_clusters = BitVec::with_capacity(min(self.cluster_count as u64, 1024));
-        visible_clusters.resize(self.cluster_count as u64, false);
+        let Some(pvs_buffer) = self.data.get(offset..) else {
+            return Default::default();
+        };
+        let mut visible_clusters = BitVec::new();
+        visible_clusters.grow(self.cluster_count as usize, false);
 
         let mut cluster_index = 0;
         let mut buffer_index = 0;
@@ -716,7 +718,7 @@ impl VisData {
                 for i in 0..8 {
                     let bit = 1 << i;
                     if (packed & bit) == bit {
-                        visible_clusters.set(cluster_index as u64, true);
+                        visible_clusters.set(cluster_index as usize, true);
                     }
                     cluster_index += 1;
                 }
