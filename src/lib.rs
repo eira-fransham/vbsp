@@ -258,6 +258,21 @@ impl Bsp {
             .lump_reader(LumpType::VertNormalIndices)?
             .read_vec(|r| r.read())?;
         let game_lumps: GameLumpHeader = bsp_file.lump_reader(LumpType::GameLump)?.read()?;
+
+        // TODO: Debugging code
+        // {
+        //     let pack_dbg = Packfile::read(bsp_file.lump_reader(LumpType::PakFile)?.into_data())?;
+
+        //     dbg!(
+        //         pack_dbg
+        //             .into_zip()
+        //             .lock()
+        //             .unwrap()
+        //             .file_names()
+        //             .collect::<Vec<_>>()
+        //     );
+        // }
+
         let pack = Packfile::read(bsp_file.lump_reader(LumpType::PakFile)?.into_data())?;
 
         let static_props = game_lumps
@@ -467,7 +482,7 @@ impl Bsp {
         }
     }
 
-    pub fn static_props(&self) -> impl Iterator<Item = Handle<'_, StaticPropLump>> {
+    pub fn static_props(&self) -> impl Iterator<Item = Handle<'_, StaticPropLumpEntry>> {
         self.static_props
             .props
             .props

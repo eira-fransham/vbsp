@@ -1,7 +1,7 @@
-use crate::{Handle, StaticPropLump};
+use crate::{Handle, StaticPropLumpEntry};
 use vbsp_common::{AsPropPlacement, PropPlacement};
 
-impl<'a> AsPropPlacement<'a> for Handle<'a, StaticPropLump> {
+impl<'a> AsPropPlacement<'a> for Handle<'a, StaticPropLumpEntry> {
     fn as_prop_placement(&self) -> PropPlacement<'a> {
         PropPlacement {
             model: self.model(),

@@ -95,30 +95,30 @@ impl GameLumpType for PropStaticGameLump {
     const ID: i32 = i32::from_be_bytes(*b"sprp");
 }
 
-#[derive(Debug, Clone, BinRead)]
+#[derive(Debug, Clone, BinRead, Default)]
 pub struct StaticPropDictLump {
     pub entries: i32,
     #[br(count = entries)]
     pub name: Vec<FixedString<128>>,
 }
 
-#[derive(Debug, Clone, BinRead)]
+#[derive(Debug, Clone, BinRead, Default)]
 pub struct StaticPropLeafLump {
     pub entries: i32,
     #[br(count = entries)]
     pub leaves: Vec<u16>,
 }
 
-#[derive(Debug, Clone, BinRead)]
+#[derive(Debug, Clone, BinRead, Default)]
 #[br(import(version: u16))]
 pub struct StaticPropLumps {
     pub entries: i32,
     #[br(args_raw = binrw::VecArgs{count: entries as usize, inner: (version,)})]
-    pub props: Vec<StaticPropLump>,
+    pub props: Vec<StaticPropLumpEntry>,
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct StaticPropLump {
+pub struct StaticPropLumpEntry {
     pub origin: Vec3,
     pub angles: Angles,
     pub prop_type: u16,
@@ -136,7 +136,7 @@ pub struct StaticPropLump {
     pub lightmap_resolution: [u16; 2],
 }
 
-impl BinRead for StaticPropLump {
+impl BinRead for StaticPropLumpEntry {
     type Args<'a> = (u16,);
 
     fn read_options<R: Read + Seek>(
@@ -145,9 +145,8 @@ impl BinRead for StaticPropLump {
         args: Self::Args<'static>,
     ) -> BinResult<Self> {
         match args.0 {
-            4..=7 | 9 | 10 => {
-                RawStaticPropLump::read_options(reader, endian, (args.0,)).map(StaticPropLump::from)
-            }
+            4..=7 | 9 | 10 => RawStaticPropLump::read_options(reader, endian, (args.0,))
+                .map(StaticPropLumpEntry::from),
             version => Err(binrw::Error::Custom {
                 err: Box::new(UnsupportedLumpVersion {
                     lump_type: "static props",
@@ -225,9 +224,9 @@ fn test_static_prop_lump_bytes() {
     super::test_read_bytes_args::<RawStaticPropLump>((10,));
 }
 
-impl From<RawStaticPropLump> for StaticPropLump {
+impl From<RawStaticPropLump> for StaticPropLumpEntry {
     fn from(from: RawStaticPropLump) -> Self {
-        StaticPropLump {
+        StaticPropLumpEntry {
             origin: from.origin,
             angles: from.angles,
             prop_type: from.prop_type,

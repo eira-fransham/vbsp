@@ -24,7 +24,7 @@ binrw = "0.14.1"
 static_assertions = "1.1.0"
 num_enum = "0.7.3"
 tracing = "0.1"
-zip = { package = "zip-lzma", version = "0.6.3", default-features = false, features = ["lzma"] }
+zip = "8.2"
 itertools = "0.14.0"
 image = "0.25"
 ahash = "0.8.11"
