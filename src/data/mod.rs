@@ -11,16 +11,17 @@ pub use self::game::*;
 pub use self::leaves::*;
 use crate::BspError;
 use crate::bspfile::LumpType;
+use crate::visdata::calculate_visdata_indices;
 use crate::{BspResult, StringError};
 use arrayvec::ArrayString;
 use binrw::error::CustomError;
 use binrw::{BinRead, BinResult, Endian};
-use bit_vec::BitVec;
 use bitflags::bitflags;
 use glam::IVec2;
 use glam::UVec2;
 use glam::Vec2;
 use glam::Vec3;
+use itertools::Either;
 use num_enum::{TryFromPrimitive, TryFromPrimitiveError};
 use std::borrow::Cow;
 use std::fmt;
@@ -330,6 +331,17 @@ pub struct Plane {
     pub ty: i32,
 }
 
+impl Plane {
+    pub fn normal(&self) -> Vec3 {
+        match self.ty {
+            0 => Vec3::X,
+            1 => Vec3::Y,
+            2 => Vec3::Z,
+            _ => self.normal,
+        }
+    }
+}
+
 #[derive(Debug, Clone, BinRead)]
 pub struct NodeV0 {
     pub plane_index: i32,
@@ -387,8 +399,8 @@ pub struct Model {
     #[br(map = |vals: [f32; 3]| vals.into())]
     pub origin: Vec3,
     pub head_node: i32,
-    pub first_face: i32,
-    pub face_count: i32,
+    pub first_face: u32,
+    pub face_count: u32,
 }
 
 static_assertions::const_assert_eq!(size_of::<Model>(), 48);
@@ -689,43 +701,24 @@ pub struct VisData {
     pub cluster_count: u32,
     pub pvs_offsets: Vec<i32>,
     pub pas_offsets: Vec<i32>,
+    pub offset_start: i32,
     pub data: Vec<u8>,
 }
 
 impl VisData {
-    pub fn visible_clusters(&self, cluster: i32) -> BitVec<u32> {
-        let Ok(cluster) = usize::try_from(cluster) else {
-            return Default::default();
+    pub fn visible_clusters(&self, cluster: u32) -> impl Iterator<Item = u32> + Clone {
+        let Some(offset) = self.pvs_offsets.get(cluster as usize) else {
+            return Either::Left(std::iter::empty());
         };
-        let offset = self.pvs_offsets[cluster] as usize;
-        let Some(pvs_buffer) = self.data.get(offset..) else {
-            return Default::default();
+
+        let Ok(offset_usize) = usize::try_from(*offset - self.offset_start) else {
+            return Either::Left(std::iter::empty());
         };
-        let mut visible_clusters = BitVec::new();
-        visible_clusters.grow(self.cluster_count as usize, false);
 
-        let mut cluster_index = 0;
-        let mut buffer_index = 0;
-
-        while cluster_index < self.cluster_count {
-            if pvs_buffer[buffer_index] == 0 {
-                let skip = pvs_buffer[buffer_index + 1];
-                cluster_index += skip as u32;
-                buffer_index += 2;
-            } else {
-                let packed = pvs_buffer[buffer_index];
-                for i in 0..8 {
-                    let bit = 1 << i;
-                    if (packed & bit) == bit {
-                        visible_clusters.set(cluster_index as usize, true);
-                    }
-                    cluster_index += 1;
-                }
-                buffer_index += 1;
-            }
-        }
-
-        visible_clusters
+        Either::Right(calculate_visdata_indices(
+            &self.data[offset_usize..],
+            self.cluster_count,
+        ))
     }
 }
 

@@ -127,7 +127,7 @@ impl<'a> Handle<'a, DisplacementInfo> {
             })
     }
 
-    pub fn triangulated_displaced_vertices(&self) -> impl Iterator<Item = Vec3> + use<'_, 'a> {
+    pub fn triangulated_displaced_vertices(&self) -> impl Iterator<Item = Vec3> + use<'a> {
         let vertices: Vec<_> = self.displaced_vertices().collect();
 
         self.triangulated_indices().map(move |i| vertices[i])

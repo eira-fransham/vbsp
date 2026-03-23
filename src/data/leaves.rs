@@ -3,6 +3,7 @@ use std::mem::{align_of, size_of};
 use std::ops::Deref;
 
 use binrw::{BinRead, BinResult, Endian};
+use glam::{I16Vec3, Vec3};
 
 use crate::BspError;
 use crate::lighting::CompressedLightCube;
@@ -197,8 +198,10 @@ pub struct LeafV0 {
     pub cluster: i16,
     pub area_and_flags: i16,
     // first 9 bits is area, last 7 bits is flags
-    pub mins: [i16; 3],
-    pub maxs: [i16; 3],
+    #[br(map = |v: [i16; 3]| v.into())]
+    pub mins: I16Vec3,
+    #[br(map = |v: [i16; 3]| v.into())]
+    pub maxs: I16Vec3,
     pub first_leaf_face: u16,
     pub leaf_face_count: u16,
     pub first_leaf_brush: u16,
@@ -217,8 +220,8 @@ impl From<LeafV0> for Leaf {
             contents: value.contents,
             cluster: value.cluster as _,
             area_and_flags: PackedAreaAndFlags::from_i16(value.area_and_flags),
-            mins: value.mins.map(|v| v as _),
-            maxs: value.maxs.map(|v| v as _),
+            mins: value.mins.as_vec3(),
+            maxs: value.maxs.as_vec3(),
             first_leaf_face: value.first_leaf_face as _,
             leaf_face_count: value.leaf_face_count as _,
             first_leaf_brush: value.first_leaf_brush as _,
@@ -235,8 +238,10 @@ pub struct LeafV1 {
     pub cluster: i16,
     pub area_and_flags: i16,
     // first 9 bits is area, last 7 bits is flags
-    pub mins: [i16; 3],
-    pub maxs: [i16; 3],
+    #[br(map = |v: [i16; 3]| v.into())]
+    pub mins: I16Vec3,
+    #[br(map = |v: [i16; 3]| v.into())]
+    pub maxs: I16Vec3,
     pub first_leaf_face: u16,
     pub leaf_face_count: u16,
     pub first_leaf_brush: u16,
@@ -253,8 +258,8 @@ impl From<LeafV1> for Leaf {
             contents: value.contents,
             cluster: value.cluster as _,
             area_and_flags: PackedAreaAndFlags::from_i16(value.area_and_flags),
-            mins: value.mins.map(|v| v as _),
-            maxs: value.maxs.map(|v| v as _),
+            mins: value.mins.as_vec3(),
+            maxs: value.maxs.as_vec3(),
             first_leaf_face: value.first_leaf_face as _,
             leaf_face_count: value.leaf_face_count as _,
             first_leaf_brush: value.first_leaf_brush as _,
@@ -297,8 +302,8 @@ pub struct Leaf {
     pub cluster: i32,
     // first 9 bits is area, last 7 bits is flags
     pub area_and_flags: PackedAreaAndFlags,
-    pub mins: [f32; 3],
-    pub maxs: [f32; 3],
+    pub mins: Vec3,
+    pub maxs: Vec3,
     pub first_leaf_face: u32,
     pub leaf_face_count: u32,
     pub first_leaf_brush: u32,
@@ -315,8 +320,10 @@ pub struct LeafV2 {
     pub cluster: i32,
     // first 17 bits is area, last 15 bits is flags
     pub area_and_flags: i32,
-    pub mins: [f32; 3],
-    pub maxs: [f32; 3],
+    #[br(map = |v: [f32; 3]| v.into())]
+    pub mins: Vec3,
+    #[br(map = |v: [f32; 3]| v.into())]
+    pub maxs: Vec3,
     pub first_leaf_face: u32,
     pub leaf_face_count: u32,
     pub first_leaf_brush: u32,

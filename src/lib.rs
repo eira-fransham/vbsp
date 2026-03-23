@@ -3,6 +3,7 @@ pub mod data;
 pub mod error;
 mod handle;
 mod reader;
+mod visdata;
 
 use crate::bspfile::LumpType;
 pub use crate::data::TextureFlags;
@@ -421,6 +422,10 @@ impl Bsp {
         self.planes.get(n).map(|plane| Handle::new(self, plane))
     }
 
+    pub fn brush(&self, n: usize) -> Option<Handle<'_, Brush>> {
+        self.brushes.get(n).map(|brush| Handle::new(self, brush))
+    }
+
     pub fn face(&self, n: usize) -> Option<Handle<'_, Face>> {
         self.faces.get(n).map(|face| Handle::new(self, face))
     }
@@ -464,15 +469,15 @@ impl Bsp {
 
     /// Find a leaf for a specific position
     pub fn leaf_at(&self, point: Vec3) -> Option<Handle<'_, Leaf>> {
-        let mut current = self.root_node();
+        let mut current = self.models().next()?.root()?;
 
         loop {
             let plane = current.plane();
-            let dot = point.dot(plane.normal);
+            let dot = point.dot(plane.normal()) - plane.dist;
 
             let [front, back] = current.children;
 
-            let next = if dot < plane.dist { back } else { front };
+            let next = if dot < 0. { back } else { front };
 
             if next < 0 {
                 return Some(self.leaf((!next) as usize)?.into());
