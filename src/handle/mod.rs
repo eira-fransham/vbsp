@@ -103,7 +103,9 @@ impl<'a> From<HandleGeneric<'a, LeafWithAmbientIndex<'a>>> for Handle<'a, Leaf> 
 
 impl<'a> HandleGeneric<'a, LeafWithAmbientIndex<'a>> {
     pub fn ambient_voxel_grid(&self) -> AmbientVoxelGrid {
-        let LeafAmbientIndex { count, start } = *self.data.ambient_index;
+        let Some(LeafAmbientIndex { count, start }) = self.data.ambient_index.cloned() else {
+            return Default::default();
+        };
         let start = start as usize;
         let count = count as usize;
 

@@ -407,7 +407,7 @@ impl Bsp {
 
     pub fn leaf(&self, n: usize) -> Option<HandleGeneric<'_, LeafWithAmbientIndex<'_>>> {
         let leaf = self.leaves.get(n)?;
-        let ambient_index = self.ambient_lighting_indices.get(n)?;
+        let ambient_index = self.ambient_lighting_indices.get(n);
 
         Some(HandleGeneric {
             bsp: self,
