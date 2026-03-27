@@ -16,9 +16,7 @@ pub struct Leaves {
 }
 
 impl Leaves {
-    pub fn new(mut leaves: Vec<Leaf>) -> Self {
-        leaves.sort_unstable_by_key(|leaf| leaf.cluster);
-
+    pub fn new(leaves: Vec<Leaf>) -> Self {
         Leaves { leaves }
     }
 
@@ -32,13 +30,6 @@ impl Leaves {
 
     pub fn into_inner(self) -> Vec<Leaf> {
         self.leaves
-    }
-
-    pub fn clusters(&self) -> impl Iterator<Item = impl Iterator<Item = &Leaf>> {
-        LeafClusters {
-            leaves: &self.leaves,
-            index: 0,
-        }
     }
 }
 
@@ -91,64 +82,6 @@ impl BinRead for Leaves {
 
         Ok(Self::new(entries))
     }
-}
-
-struct LeafClusters<'a> {
-    leaves: &'a [Leaf],
-    index: usize,
-}
-
-impl<'a> Iterator for LeafClusters<'a> {
-    type Item = <&'a [Leaf] as IntoIterator>::IntoIter;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let cluster = self.leaves.get(self.index)?.cluster;
-        let remaining_leaves = self.leaves.get(self.index..)?;
-        let cluster_size = remaining_leaves
-            .iter()
-            .take_while(|leaf| leaf.cluster == cluster)
-            .count();
-        self.index += cluster_size;
-        Some(remaining_leaves[0..cluster_size].iter())
-    }
-}
-
-#[test]
-fn test_leaf_clusters() {
-    let leaves: Leaves = vec![
-        Leaf {
-            contents: 0,
-            cluster: 0,
-            ..Default::default()
-        },
-        Leaf {
-            contents: 1,
-            cluster: 0,
-            ..Default::default()
-        },
-        Leaf {
-            contents: 2,
-            cluster: 1,
-            ..Default::default()
-        },
-        Leaf {
-            contents: 3,
-            cluster: 2,
-            ..Default::default()
-        },
-        Leaf {
-            contents: 4,
-            cluster: 2,
-            ..Default::default()
-        },
-    ]
-    .into();
-
-    let clustered: Vec<Vec<i32>> = leaves
-        .clusters()
-        .map(|cluster| cluster.map(|leaf| leaf.contents).collect())
-        .collect();
-    assert_eq!(vec![vec![0, 1], vec![2], vec![3, 4]], clustered);
 }
 
 impl From<Vec<Leaf>> for Leaves {

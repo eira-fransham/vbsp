@@ -106,10 +106,6 @@ impl<R: BinReaderExt + Read> LumpReader<R> {
             pas_offsets.push(self.inner.read_le()?);
         }
 
-        let offset_start = std::mem::size_of_val(&pvs_offsets[..])
-            + std::mem::size_of_val(&pas_offsets[..])
-            + std::mem::size_of_val(&cluster_count);
-
         let mut data = Vec::new();
         self.inner.read_to_end(&mut data)?;
 
@@ -117,7 +113,6 @@ impl<R: BinReaderExt + Read> LumpReader<R> {
             cluster_count,
             pvs_offsets,
             pas_offsets,
-            offset_start: offset_start as _,
             data,
         })
     }

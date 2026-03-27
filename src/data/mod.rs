@@ -701,17 +701,29 @@ pub struct VisData {
     pub cluster_count: u32,
     pub pvs_offsets: Vec<i32>,
     pub pas_offsets: Vec<i32>,
-    pub offset_start: i32,
     pub data: Vec<u8>,
 }
 
 impl VisData {
+    fn offset_start(&self) -> usize {
+        std::mem::size_of_val(&self.pvs_offsets[..])
+            + std::mem::size_of_val(&self.pas_offsets[..])
+            // For `cluster_count`
+            + std::mem::size_of::<u32>()
+    }
+
     pub fn visible_clusters(&self, cluster: u32) -> impl Iterator<Item = u32> + Clone {
+        // The first visdata offset should be at the start of `data`.
+        debug_assert_eq!(
+            *self.pvs_offsets.iter().min().unwrap() as usize,
+            self.offset_start(),
+        );
+
         let Some(offset) = self.pvs_offsets.get(cluster as usize) else {
             return Either::Left(std::iter::empty());
         };
 
-        let Ok(offset_usize) = usize::try_from(*offset - self.offset_start) else {
+        let Ok(offset_usize) = usize::try_from(*offset - self.offset_start() as i32) else {
             return Either::Left(std::iter::empty());
         };
 

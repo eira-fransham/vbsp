@@ -81,6 +81,8 @@ impl Iterator for VisdataIter<'_> {
                     return value;
                 }
             } else {
+                debug_assert_eq!(self.vis_clusters.start % 8, 0);
+
                 let next_byte = *self.data_bytes.next()?;
                 match next_byte {
                     0 => {
@@ -104,9 +106,7 @@ impl Iterator for VisdataIter<'_> {
 /// then it is the index to slice the `BspData`'s visdata from.
 pub(crate) fn calculate_visdata_indices(vis_data: &[u8], num_clusters: u32) -> VisdataIter<'_> {
     VisdataIter {
-        // Leaf index 0 is always invalid (used to represent leaves that are out-of-bounds), so Quake
-        // doesn't even store a bit for it - counting always starts at 1
-        vis_clusters: 1..num_clusters,
+        vis_clusters: 0..num_clusters,
         data_bytes: vis_data.iter(),
         cur_byte: None,
     }
