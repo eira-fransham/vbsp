@@ -40,7 +40,7 @@ impl Angles {
         Quat::from_euler(
             glam::EulerRot::XYZEx,
             self.roll.to_radians(),
-            -self.pitch.to_radians(),
+            self.pitch.to_radians(),
             self.yaw.to_radians(),
         )
     }
