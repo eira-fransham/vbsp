@@ -78,8 +78,10 @@ impl Iterator for VisdataIter<'_> {
             if let Some(is_visible) = self.cur_byte.as_mut().and_then(|byte| byte.next()) {
                 let value = self.vis_clusters.next();
                 if is_visible {
-                    return value;
+                    break value;
                 }
+            } else if self.vis_clusters.is_empty() {
+                break None;
             } else {
                 debug_assert_eq!(self.vis_clusters.start % 8, 0);
 
