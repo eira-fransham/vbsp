@@ -88,8 +88,12 @@ impl Iterator for VisdataIter<'_> {
                 let next_byte = *self.data_bytes.next()?;
                 match next_byte {
                     0 => {
-                        let advance_by = *self.data_bytes.next()?;
-                        self.vis_clusters.start += 8 * advance_by as u32;
+                        let advance_by_bytes = *self.data_bytes.next()?;
+                        let advance_by_bits = 8 * advance_by_bytes as u32;
+                        self.vis_clusters.start = self
+                            .vis_clusters
+                            .end
+                            .min(self.vis_clusters.start + advance_by_bits);
                     }
                     bits => {
                         self.cur_byte = Some(BitsIter::new(bits));
