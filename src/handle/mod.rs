@@ -324,7 +324,8 @@ impl<'a> Handle<'a, TextureInfo> {
     }
 
     pub fn uv(&self, pos: Vec3) -> Vec2 {
-        self.texture_transforms.project(pos) / self.texture_data().width as f32
+        let td = self.texture_data();
+        self.texture_transforms.project(pos) / Vec2::new(td.width as f32, td.height as f32)
     }
 }
 
