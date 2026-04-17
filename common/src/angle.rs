@@ -37,6 +37,11 @@ impl FromStr for Angles {
 
 impl Angles {
     pub fn as_quaternion(&self) -> Quat {
-        Quat::from_euler(glam::EulerRot::YXZ, self.yaw, self.pitch, self.roll)
+        Quat::from_euler(
+            glam::EulerRot::XYZEx,
+            self.roll.to_radians(),
+            self.pitch.to_radians(),
+            self.yaw.to_radians(),
+        )
     }
 }

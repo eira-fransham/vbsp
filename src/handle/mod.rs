@@ -12,8 +12,10 @@ use ahash::RandomState;
 use glam::Vec2;
 use glam::Vec3;
 use itertools::Either;
+use itertools::Itertools;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
+use std::num::NonZeroI16;
 use std::ops::Deref;
 
 /// A handle represents a data structure in the bsp file and the bsp file containing it.
@@ -78,7 +80,7 @@ impl<'a> Handle<'a, Model> {
     }
 
     /// Get all faces that make up the model
-    pub fn faces_with_id(&self) -> impl Iterator<Item = (i32, Handle<'a, Face>)> {
+    pub fn faces_with_id(&self) -> impl Iterator<Item = (u32, Handle<'a, Face>)> {
         let start = self.first_face;
         let end = start + self.face_count;
 
@@ -101,7 +103,9 @@ impl<'a> From<HandleGeneric<'a, LeafWithAmbientIndex<'a>>> for Handle<'a, Leaf> 
 
 impl<'a> HandleGeneric<'a, LeafWithAmbientIndex<'a>> {
     pub fn ambient_voxel_grid(&self) -> AmbientVoxelGrid {
-        let LeafAmbientIndex { count, start } = *self.data.ambient_index;
+        let Some(LeafAmbientIndex { count, start }) = self.data.ambient_index.cloned() else {
+            return Default::default();
+        };
         let start = start as usize;
         let count = count as usize;
 
@@ -111,6 +115,96 @@ impl<'a> HandleGeneric<'a, LeafWithAmbientIndex<'a>> {
         }
 
         builder.finish()
+    }
+}
+
+impl<'a> Handle<'a, BrushSide> {
+    pub fn displacement(&self) -> Option<Handle<'a, DisplacementInfo>> {
+        self.bsp
+            .displacement(
+                NonZeroI16::new(self.displacement_info)?
+                    .get()
+                    .try_into()
+                    .ok()?,
+            )
+            .filter(|disp| disp.power > 0)
+    }
+
+    pub fn plane(&self) -> Option<Handle<'a, Plane>> {
+        self.bsp.plane(self.plane.try_into().ok()?)
+    }
+}
+
+impl<'a> Handle<'a, Brush> {
+    pub fn sides(&self) -> impl Iterator<Item = Handle<'a, BrushSide>> + Clone + use<'a> {
+        (self.brush_side..self.brush_side + self.num_brush_sides).filter_map(|side| {
+            Some(Handle::new(
+                self.bsp,
+                self.bsp.brush_sides.get(side as usize)?,
+            ))
+        })
+    }
+
+    pub fn planes(&self) -> impl Iterator<Item = Handle<'a, Plane>> + use<'a> {
+        self.sides().filter_map(|side| side.plane())
+    }
+
+    pub fn triangulated_vertices(&self) -> impl Iterator<Item = Vec3> + use<'a, '_> {
+        self.sides()
+            .enumerate()
+            .filter_map(move |(side_a_idx, side_a)| {
+                side_a
+                    .displacement()
+                    // .map(|disp| Either::Left(disp.triangulated_displaced_vertices()))
+                    .map(|_| Either::Left(std::iter::empty()))
+                    .or_else(move || {
+                        let plane_a = side_a.plane()?;
+
+                        let mut vertices = self
+                            .sides()
+                            .enumerate()
+                            .filter_map(move |(side_b_idx, side_b)| {
+                                side_b.plane().filter(|_| side_a_idx != side_b_idx)
+                            })
+                            .cartesian_product(self.sides().enumerate().filter_map(
+                                move |(side_c_idx, side_c)| {
+                                    side_c.plane().filter(|_| side_a_idx != side_c_idx)
+                                },
+                            ))
+                            .filter_map(move |(plane_b, plane_c)| {
+                                let (plane_a_norm, plane_a_dist) =
+                                    (plane_a.normal().as_dvec3(), plane_a.dist as f64);
+                                let (plane_b_norm, plane_b_dist) =
+                                    (plane_b.normal().as_dvec3(), plane_b.dist as f64);
+                                let (plane_c_norm, plane_c_dist) =
+                                    (plane_c.normal().as_dvec3(), plane_c.dist as f64);
+
+                                let cross_bc = plane_b_norm.cross(plane_c_norm);
+                                let denominator = plane_a_norm.dot(cross_bc);
+
+                                if denominator.abs() < f64::EPSILON {
+                                    return None;
+                                }
+
+                                let vert = cross_bc * plane_a_dist
+                                    + plane_a_norm.cross(
+                                        plane_b_norm * plane_c_dist - plane_c_norm * plane_b_dist,
+                                    );
+                                let vert = vert / denominator;
+
+                                Some(vert.as_vec3())
+                            });
+
+                        let vert_a = vertices.next()?;
+
+                        Some(Either::Right(
+                            vertices
+                                .tuple_windows()
+                                .flat_map(move |(vert_b, vert_c)| [vert_a, vert_b, vert_c]),
+                        ))
+                    })
+            })
+            .flatten()
     }
 }
 
@@ -133,6 +227,27 @@ impl<'a> Handle<'a, Node> {
         });
 
         Some([left?, right?])
+    }
+
+    pub fn faces(&self) -> impl Iterator<Item = Handle<'a, Face>> + use<'a> {
+        self.faces_with_id().map(|(_, face)| face)
+    }
+
+    pub fn faces_with_id(&self) -> impl Iterator<Item = (u32, Handle<'a, Face>)> + use<'a> {
+        (self.first_face..self.first_face + self.face_count)
+            .filter_map(|i| Some((i, self.bsp.face(i as usize)?)))
+            .chain(
+                self.children()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|child| {
+                        child.left().map(|node| {
+                            Box::new(node.faces_with_id())
+                                as Box<dyn Iterator<Item = (u32, Handle<'a, Face>)>>
+                        })
+                    })
+                    .flatten(),
+            )
     }
 
     pub fn leaves(&self) -> impl Iterator<Item = Handle<'a, Leaf>> + use<'a> {
@@ -162,35 +277,17 @@ impl<'a, L> HandleGeneric<'a, L>
 where
     L: Deref<Target = Leaf>,
 {
-    /// Get all other leaves visible from this one
-    pub fn visible_set(&self) -> Option<impl Iterator<Item = Handle<'a, Leaf>>> {
-        let cluster = self.cluster;
-        let bsp = self.bsp;
-
-        if cluster < 0 {
-            None
-        } else {
-            let visible_clusters = bsp.vis_data.visible_clusters(cluster);
-            Some(
-                bsp.leaves
-                    .iter()
-                    .filter(move |leaf| {
-                        if leaf.cluster == cluster {
-                            true
-                        } else if leaf.cluster > 0 {
-                            visible_clusters[leaf.cluster as usize]
-                        } else {
-                            false
-                        }
-                    })
-                    .map(move |leaf| Handle { bsp, data: leaf }),
-            )
-        }
-    }
-
     /// Get all faces in this leaf
     pub fn faces(&self) -> impl Iterator<Item = Handle<'a, Face>> + use<'a, L> {
         self.faces_with_id().map(|(_, face)| face)
+    }
+
+    /// Get all brushes in this leaf
+    pub fn brushes(&self) -> impl Iterator<Item = Handle<'a, Brush>> + use<'a, L> {
+        (self.first_leaf_brush..self.first_leaf_brush + self.leaf_brush_count).filter_map(|b| {
+            let leaf_brush = self.bsp.leaf_brushes.get(b as usize)?;
+            self.bsp.brush(leaf_brush.brush as _)
+        })
     }
 
     /// Get all faces that make up the model

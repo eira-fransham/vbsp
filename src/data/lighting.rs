@@ -104,6 +104,7 @@ impl AmbientVoxelGridBuilder {
     }
 }
 
+#[derive(Default)]
 pub struct AmbientVoxelGrid {
     pub samples: Vec<f32>,
 }
@@ -126,7 +127,7 @@ pub struct LeafAmbientIndex {
 
 pub struct LeafWithAmbientIndex<'a> {
     pub leaf: &'a Leaf,
-    pub ambient_index: &'a LeafAmbientIndex,
+    pub ambient_index: Option<&'a LeafAmbientIndex>,
 }
 
 impl Deref for LeafWithAmbientIndex<'_> {

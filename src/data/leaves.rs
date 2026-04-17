@@ -3,6 +3,7 @@ use std::mem::{align_of, size_of};
 use std::ops::Deref;
 
 use binrw::{BinRead, BinResult, Endian};
+use glam::{I16Vec3, Vec3};
 
 use crate::BspError;
 use crate::lighting::CompressedLightCube;
@@ -15,9 +16,7 @@ pub struct Leaves {
 }
 
 impl Leaves {
-    pub fn new(mut leaves: Vec<Leaf>) -> Self {
-        leaves.sort_unstable_by_key(|leaf| leaf.cluster);
-
+    pub fn new(leaves: Vec<Leaf>) -> Self {
         Leaves { leaves }
     }
 
@@ -31,13 +30,6 @@ impl Leaves {
 
     pub fn into_inner(self) -> Vec<Leaf> {
         self.leaves
-    }
-
-    pub fn clusters(&self) -> impl Iterator<Item = impl Iterator<Item = &Leaf>> {
-        LeafClusters {
-            leaves: &self.leaves,
-            index: 0,
-        }
     }
 }
 
@@ -92,64 +84,6 @@ impl BinRead for Leaves {
     }
 }
 
-struct LeafClusters<'a> {
-    leaves: &'a [Leaf],
-    index: usize,
-}
-
-impl<'a> Iterator for LeafClusters<'a> {
-    type Item = <&'a [Leaf] as IntoIterator>::IntoIter;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let cluster = self.leaves.get(self.index)?.cluster;
-        let remaining_leaves = self.leaves.get(self.index..)?;
-        let cluster_size = remaining_leaves
-            .iter()
-            .take_while(|leaf| leaf.cluster == cluster)
-            .count();
-        self.index += cluster_size;
-        Some(remaining_leaves[0..cluster_size].iter())
-    }
-}
-
-#[test]
-fn test_leaf_clusters() {
-    let leaves: Leaves = vec![
-        Leaf {
-            contents: 0,
-            cluster: 0,
-            ..Default::default()
-        },
-        Leaf {
-            contents: 1,
-            cluster: 0,
-            ..Default::default()
-        },
-        Leaf {
-            contents: 2,
-            cluster: 1,
-            ..Default::default()
-        },
-        Leaf {
-            contents: 3,
-            cluster: 2,
-            ..Default::default()
-        },
-        Leaf {
-            contents: 4,
-            cluster: 2,
-            ..Default::default()
-        },
-    ]
-    .into();
-
-    let clustered: Vec<Vec<i32>> = leaves
-        .clusters()
-        .map(|cluster| cluster.map(|leaf| leaf.contents).collect())
-        .collect();
-    assert_eq!(vec![vec![0, 1], vec![2], vec![3, 4]], clustered);
-}
-
 impl From<Vec<Leaf>> for Leaves {
     fn from(other: Vec<Leaf>) -> Self {
         Self::new(other)
@@ -197,8 +131,10 @@ pub struct LeafV0 {
     pub cluster: i16,
     pub area_and_flags: i16,
     // first 9 bits is area, last 7 bits is flags
-    pub mins: [i16; 3],
-    pub maxs: [i16; 3],
+    #[br(map = |v: [i16; 3]| v.into())]
+    pub mins: I16Vec3,
+    #[br(map = |v: [i16; 3]| v.into())]
+    pub maxs: I16Vec3,
     pub first_leaf_face: u16,
     pub leaf_face_count: u16,
     pub first_leaf_brush: u16,
@@ -217,8 +153,8 @@ impl From<LeafV0> for Leaf {
             contents: value.contents,
             cluster: value.cluster as _,
             area_and_flags: PackedAreaAndFlags::from_i16(value.area_and_flags),
-            mins: value.mins.map(|v| v as _),
-            maxs: value.maxs.map(|v| v as _),
+            mins: value.mins.as_vec3(),
+            maxs: value.maxs.as_vec3(),
             first_leaf_face: value.first_leaf_face as _,
             leaf_face_count: value.leaf_face_count as _,
             first_leaf_brush: value.first_leaf_brush as _,
@@ -235,8 +171,10 @@ pub struct LeafV1 {
     pub cluster: i16,
     pub area_and_flags: i16,
     // first 9 bits is area, last 7 bits is flags
-    pub mins: [i16; 3],
-    pub maxs: [i16; 3],
+    #[br(map = |v: [i16; 3]| v.into())]
+    pub mins: I16Vec3,
+    #[br(map = |v: [i16; 3]| v.into())]
+    pub maxs: I16Vec3,
     pub first_leaf_face: u16,
     pub leaf_face_count: u16,
     pub first_leaf_brush: u16,
@@ -253,8 +191,8 @@ impl From<LeafV1> for Leaf {
             contents: value.contents,
             cluster: value.cluster as _,
             area_and_flags: PackedAreaAndFlags::from_i16(value.area_and_flags),
-            mins: value.mins.map(|v| v as _),
-            maxs: value.maxs.map(|v| v as _),
+            mins: value.mins.as_vec3(),
+            maxs: value.maxs.as_vec3(),
             first_leaf_face: value.first_leaf_face as _,
             leaf_face_count: value.leaf_face_count as _,
             first_leaf_brush: value.first_leaf_brush as _,
@@ -297,8 +235,8 @@ pub struct Leaf {
     pub cluster: i32,
     // first 9 bits is area, last 7 bits is flags
     pub area_and_flags: PackedAreaAndFlags,
-    pub mins: [f32; 3],
-    pub maxs: [f32; 3],
+    pub mins: Vec3,
+    pub maxs: Vec3,
     pub first_leaf_face: u32,
     pub leaf_face_count: u32,
     pub first_leaf_brush: u32,
@@ -315,8 +253,10 @@ pub struct LeafV2 {
     pub cluster: i32,
     // first 17 bits is area, last 15 bits is flags
     pub area_and_flags: i32,
-    pub mins: [f32; 3],
-    pub maxs: [f32; 3],
+    #[br(map = |v: [f32; 3]| v.into())]
+    pub mins: Vec3,
+    #[br(map = |v: [f32; 3]| v.into())]
+    pub maxs: Vec3,
     pub first_leaf_face: u32,
     pub leaf_face_count: u32,
     pub first_leaf_brush: u32,
