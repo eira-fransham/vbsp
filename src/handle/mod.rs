@@ -277,35 +277,6 @@ impl<'a, L> HandleGeneric<'a, L>
 where
     L: Deref<Target = Leaf>,
 {
-    /// Get all other leaves visible from this one
-    // pub fn visible_set(&self) -> Option<impl Iterator<Item = Handle<'a, Leaf>>> {
-    //     let cluster = self.cluster;
-    //     let bsp = self.bsp;
-
-    //     if cluster < 0 {
-    //         None
-    //     } else {
-    //         let visible_clusters = cluster
-    //             .try_into()
-    //             .map(|cluster| bsp.vis_data.visible_clusters(cluster))
-    //             .unwrap_or_default();
-    //         Some(
-    //             bsp.leaves
-    //                 .iter()
-    //                 .filter(move |leaf| {
-    //                     if leaf.cluster == cluster {
-    //                         true
-    //                     } else if leaf.cluster > 0 {
-    //                         visible_clusters[leaf.cluster as usize]
-    //                     } else {
-    //                         false
-    //                     }
-    //                 })
-    //                 .map(move |leaf| Handle { bsp, data: leaf }),
-    //         )
-    //     }
-    // }
-
     /// Get all faces in this leaf
     pub fn faces(&self) -> impl Iterator<Item = Handle<'a, Face>> + use<'a, L> {
         self.faces_with_id().map(|(_, face)| face)
